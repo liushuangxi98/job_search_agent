@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>求职决策 Agent · 工作台</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <a href="#/resume" class="brand"><span class="brand-mark">求</span><span>求职决策 Agent<small>CAREER WORKSPACE</small></span></a>
+    <div class="nav-label">我的求职工作台</div>
+    <nav aria-label="步骤导航">
+      <a href="#/resume" data-page="resume"><span>01</span>简历画像</a>
+      <a href="#/preferences" data-page="preferences"><span>02</span>求职条件</a>
+      <a href="#/jobs" data-page="jobs"><span>03</span>岗位池</a>
+      <a href="#/evaluate" data-page="evaluate"><span>04</span>岗位评估</a>
+      <a href="#/reports" data-page="reports"><span>05</span>决策报告</a>
+      <a href="#/knowledge" data-page="knowledge"><span>06</span>面试题库</a>
+    </nav>
+    <div class="sidebar-note"><span class="tiny-label">YOUR NEXT CHAPTER</span><strong>让每次选择，都有依据。</strong><p>从了解自己，到找到合适的下一站。</p></div>
+    <div class="connection" id="connection"><i></i><span>正在连接本机服务</span></div>
+  </aside>
+  <main class="workspace">
+    <header class="topbar"><div><div class="eyebrow" id="eyebrow">准备开始</div><h1 id="page-title">简历画像</h1></div><div class="header-actions"><span class="badge" id="mode-badge">连接中</span><button type="button" id="active-activity" data-action="resume-activity" class="secondary" hidden>返回当前活动</button><button type="button" data-action="open-chat" class="secondary">聊一聊 <span aria-hidden="true">↗</span></button></div></header>
+    <div id="mode-banner" class="mode-banner" hidden><span><b>模拟数据模式</b> · 模型、识别、路线与评分均为固定联调样例。</span><label>联调场景 <select id="scenario"><option value="success">正常完成</option><option value="needs_input">需要补充</option><option value="partial">部分结果</option><option value="fail">服务失败</option></select></label></div>
+    <div id="global-error" role="alert" class="error-banner" hidden></div>
+    <section id="view" aria-label="当前主视图"><div class="loading">正在载入工作台…</div></section>
+  </main>
+  <button class="chat-fab" data-action="open-chat" aria-label="打开聊天" title="补充信息 / 追问">✦ <span>补充信息 / 追问</span></button>
+  <div id="drawer-overlay" class="drawer-overlay" hidden></div>
+  <aside id="job-drawer" class="drawer" hidden aria-label="岗位详情"></aside>
+  <aside id="chat-drawer" class="chat-drawer" hidden aria-label="聊天与信息补充"></aside>
+  <dialog id="editor" class="editor-dialog"></dialog>
+  <div id="toast" role="status" class="toast" hidden></div>
+  <input id="file-picker" type="file" hidden>
+</body>
+</html>
