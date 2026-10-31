@@ -1,4 +1,4 @@
-"""The only place to wire your own async handle(command, services, emit)."""
+"""唯一的 Agent 接入位置，在应用创建时选择固定样例或用户异步入口。"""
 from importlib import import_module
 
 
@@ -7,7 +7,7 @@ def load_handler(mode):
         from .demo import handle
         return handle
     try:
-        # The user creates this module. This application never generates it.
+        # 此模块由你自行编写；真实模式找不到入口时必须明确报错，不能回退演示。
         return getattr(import_module('career_agent.agent'), 'handle')
     except (ImportError, AttributeError):
         return None

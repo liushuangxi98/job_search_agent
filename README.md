@@ -43,14 +43,19 @@
 
 | 位置 | 职责 |
 | --- | --- |
-| `backend/app.py` | HTTP 路由、文件和输入边界、静态页面服务 |
-| `backend/repository.py`、`backend/db.py` | MySQL 数据模型、事务和普通存取 |
+| `backend/app.py` | 应用装配、生命周期和静态页面服务 |
+| `backend/api/` | 接口层：接收 HTTP 参数、注入服务、返回响应 |
+| `backend/services/` | 业务层：资料校验、修订冲突、事务、文件和运行流程 |
+| `backend/repositories/` | 数据访问层：在当前 Session 中执行 SQL/ORM 操作 |
+| `backend/models.py`、`backend/database.py` | MySQL 表模型、连接池和初始化 |
 | `backend/agent_gateway.py` | 唯一的真实 Agent 接入位置 |
-| `backend/contracts.py`、`backend/runs.py` | 输入输出契约、内存运行容器、事件和确认处理 |
+| `backend/contracts.py`、`backend/services/run_service.py` | Agent 契约、内存运行、事件和人工确认 |
 | `backend/demo.py` | 固定联调数据，非 Agent 实现 |
 | `frontend/` | 六个视图、岗位抽屉、聊天、全屏面试 |
 | `tests/` | 应用边界与 MySQL 集成测试，不包含 Agent 能力测试 |
 | `data/` | 本机上传文件及脱敏事件日志 |
+
+后端采用 `api → services → repositories` 三层架构。推荐从 `api/jobs.py → services/job_service.py → repositories/job_repository.py` 顺着读；业务服务统一管理事务，仓库不自行提交。结构和调用关系见 [后端架构说明](docs/backend-architecture.md)，完整目录见 [项目代码结构与 Agent 开发路线](项目参考代码目录.md)。
 
 MySQL 保存画像、条件、岗位、资料元数据、题目、记忆和已完成报告。报告包括输入快照，之后修改或删除岗位不会重写历史结果。原始文件保存在 `data/uploads/`，不存成数据库大字段。
 
@@ -89,4 +94,6 @@ MySQL 保存画像、条件、岗位、资料元数据、题目、记忆和已�
 
 ## 本次交付验证
 
-2026-10-31：42项应用/API/真实MySQL/Edge DOM测试通过，桌面视觉与入口专项复核通过；两个Windows初始化/启动入口已实际执行。详细过程和边界见 [实施与验收记录](docs/implementation-progress.md)。这些结果只证明前后端支撑，不表示真实Agent能力已实现。
+2026-10-31：首次交付通过42项应用/API/真实MySQL/Edge DOM测试，两个Windows初始化/启动入口已实际执行。同日完成三层架构重构后，完整 **48项测试通过**（含8项Edge交互测试），独立代码审查和流程图局部视觉检查通过。
+
+API与现有MySQL表结构保持兼容，启动方式不变，重启服务后加载新代码。详细过程和边界见 [实施与验收记录](docs/implementation-progress.md)。这些结果只证明前后端支撑，不表示真实Agent能力已实现。

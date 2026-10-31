@@ -6,7 +6,7 @@ import pytest
 
 from backend.app import create_app
 from backend.contracts import AgentResponse
-from backend.runs import Run, RunManager
+from backend.services.run_service import Run, RunService
 from test_runs_api import ready_profile, start
 
 
@@ -42,7 +42,7 @@ def test_redaction_preserves_ids_and_business_snapshot(settings):
         await emit('tool', 'password=123', {'api_key': 'sk-hidden-123456789'})
         return AgentResponse(kind='interview_report', data={'title': '第123次练习', 'dimensions': [], 'answers': []})
 
-    manager = RunManager(config, Storage(), None, handle)
+    manager = RunService(config, Storage(), None, handle)
     run = Run(id='a123' + 'b' * 28, action='interview', input={}, context={'type': 'job', 'id': 'job123'},
               snapshot={'profile': {'data': {'summary': '参与123项目'}}}, is_demo=True)
     manager.runs[run.id] = run
@@ -63,7 +63,7 @@ def test_pending_proposal_value_is_not_rewritten_by_redaction(settings):
                              pending_input={'kind': 'proposal', 'prompt': '确认简介',
                                             'proposal': {'target': 'profile', 'revision': 1,
                                                          'changes': {'summary': '参与123项目'}}})
-    manager = RunManager(settings.model_copy(update={'mysql_password': '123'}), None, None, handle)
+    manager = RunService(settings.model_copy(update={'mysql_password': '123'}), None, None, handle)
     run = Run(id='a' * 32, action='chat', input={}, context={}, snapshot={}, is_demo=True)
     manager.runs[run.id] = run
     asyncio.run(manager.execute(run))
@@ -73,7 +73,7 @@ def test_pending_proposal_value_is_not_rewritten_by_redaction(settings):
 def test_event_protocol_fields_are_not_redacted(settings):
     async def handle(command, services, emit):
         return AgentResponse(kind='chat', data={'message': '正常回复'})
-    manager = RunManager(settings.model_copy(update={'mysql_password': 'status'}), None, None, handle)
+    manager = RunService(settings.model_copy(update={'mysql_password': 'status'}), None, None, handle)
     run = Run(id='b' * 32, action='chat', input={}, context={}, snapshot={}, is_demo=True)
     manager.runs[run.id] = run
     asyncio.run(manager.execute(run))

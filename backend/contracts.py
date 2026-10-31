@@ -1,4 +1,4 @@
-"""Application/Agent boundary. No prompts, inference or business algorithms here."""
+"""应用与 Agent 的数据契约；只定义输入输出，不包含提示词、推理或算法。"""
 from dataclasses import dataclass
 from typing import Literal
 
@@ -69,7 +69,7 @@ class ProfileDraftData(DisplayData):
 
 
 class JobDraft(JobData):
-    # Extraction may be incomplete; the user completes these before JobData is saved.
+    # 抽取结果可以缺字段；正式保存为岗位前，用户须在预览中补齐。
     company: str | None = Field(default=None, max_length=200)
     title: str | None = Field(default=None, max_length=200)
 
@@ -172,5 +172,6 @@ class AgentCommand:
 
 @dataclass
 class ApplicationServices:
+    # 名称保持接入兼容；repository 实际指向业务层 AgentDataService。
     repository: object
     files: object

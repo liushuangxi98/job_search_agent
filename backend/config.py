@@ -1,3 +1,4 @@
+"""从本地 .env 读取应用配置；模型与工具配置留给用户 Agent。"""
 from pathlib import Path
 from typing import Literal
 

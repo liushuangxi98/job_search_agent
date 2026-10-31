@@ -2,7 +2,7 @@
 from copy import deepcopy
 
 from .contracts import AgentResponse
-from .errors import AppError
+from .exceptions import AppError
 
 PROFILE = {'name': '示例求职者', 'headline': 'Python 自动化测试开发 · 转向 Agent 应用',
            'summary': '四年 Python 自动化测试开发经验，正在学习 Agent 应用开发。',

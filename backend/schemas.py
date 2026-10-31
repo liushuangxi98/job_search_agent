@@ -1,3 +1,4 @@
+"""HTTP 与业务服务共用的数据校验，保证 Agent 直接调用时也遵守相同字段约束。"""
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator

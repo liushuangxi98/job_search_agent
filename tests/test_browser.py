@@ -43,7 +43,7 @@ def browser_env(settings):
         return await demo_handle(command, services, emit)
 
     app = create_app(settings, handler=handler)
-    repo = app.state.repository
+    repo = app.state.agent_data_service
     repo.update_candidate('profile', {'summary': '已确认的测试经历'}, 0, True)
 
     class SaveGate(BaseHTTPMiddleware):

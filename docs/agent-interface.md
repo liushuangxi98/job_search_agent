@@ -32,6 +32,10 @@
 
 ## 可用的普通存取
 
+三层重构后，`services.repository` 仍保留下面的方法名，实际指向 `backend/services/agent_data_service.py`，并由它调用各业务服务；不向 Agent 暴露 SQLAlchemy Session。`services.files` 指向 `DocumentService`。运行管理位于 `backend/services/run_service.py`，HTTP 入口位于 `backend/api/runs.py`。你仍只需按本页契约实现 Agent，无须自己管理数据库事务。
+
+兼容接口沿用原有普通存取语义：列表分页参数由 HTTP 路由检查，直接调用时需传合法的 `offset/limit`；`add_document/delete_document` 只处理元数据，完整上传和删除文件使用资料服务。评估和面试报告应通过 `AgentResponse` 返回，由运行服务校验后保存；直接调用 `save_report` 不会替你执行运行结果校验。
+
 - `services.files.resolve(document_id)`：根据已登记资料 ID 返回受控文件路径；你自行读取、解析或交给本地 MCP。不要把模型任意给出的本机路径当作资料。
 - `services.repository.candidate('profile' / 'preferences')`：读取当前资料，返回 `revision / confirmed / data`。
 - `job(id)`、`jobs(q='', offset=0, limit=100)`：岗位读取。

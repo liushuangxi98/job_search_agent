@@ -3,7 +3,7 @@ import argparse
 from sqlalchemy.exc import SQLAlchemyError
 
 from .config import Settings
-from .db import initialize_database
+from .database import initialize_database
 
 
 def main():

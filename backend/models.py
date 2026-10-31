@@ -1,10 +1,9 @@
+"""数据库表定义；重构只移动代码，不修改现有表名、字段和外键。"""
 from datetime import datetime, UTC
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, create_engine, text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
-
-from .config import Settings
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 def utcnow():
@@ -21,6 +20,7 @@ class Record:
 
 
 class Candidate(Base):
+    # 单用户应用只有一行资料，画像与条件共用 revision，避免相互覆盖旧状态。
     __tablename__ = 'candidate'
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
     revision: Mapped[int] = mapped_column(default=0)
@@ -63,33 +63,10 @@ class Memory(Record, Base):
 
 
 class Report(Record, Base):
+    # 报告保存当次输入快照，之后修改岗位不会改变历史报告。
     __tablename__ = 'reports'
     kind: Mapped[str] = mapped_column(String(20))
     run_id: Mapped[str] = mapped_column(String(32), unique=True)
     is_demo: Mapped[bool] = mapped_column(Boolean)
     data: Mapped[dict] = mapped_column(JSON)
     snapshot: Mapped[dict] = mapped_column(JSON)
-
-
-def make_engine(settings: Settings, *, administrative=False):
-    url = settings.database_url._replace(database=None) if administrative else settings.database_url
-    return create_engine(url, pool_pre_ping=True, hide_parameters=True,
-                         connect_args={'connect_timeout': 3, 'read_timeout': 10, 'write_timeout': 10})
-
-
-def initialize_database(settings: Settings, *, create_database=False):
-    if create_database:
-        admin = make_engine(settings, administrative=True)
-        try:
-            with admin.begin() as connection:
-                connection.execute(text(f'CREATE DATABASE IF NOT EXISTS `{settings.mysql_database}` CHARACTER SET utf8mb4'))
-        finally:
-            admin.dispose()
-    engine = make_engine(settings)
-    try:
-        Base.metadata.create_all(engine)
-        with sessionmaker(engine).begin() as session:
-            if session.get(Candidate, 1) is None:
-                session.add(Candidate(id=1))
-    finally:
-        engine.dispose()

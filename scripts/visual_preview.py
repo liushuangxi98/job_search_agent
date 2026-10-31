@@ -7,7 +7,7 @@ import uvicorn
 
 from backend.app import create_app
 from backend.config import Settings
-from backend.db import initialize_database
+from backend.database import initialize_database
 
 ROOT = Path(__file__).resolve().parents[1]
 

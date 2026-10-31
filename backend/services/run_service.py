@@ -1,3 +1,4 @@
+"""内存运行服务：调用 Agent、等待人工输入、确认修改和保存完成报告。"""
 import asyncio
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -8,9 +9,13 @@ import uuid
 
 from pydantic import ValidationError
 
-from .contracts import AgentCommand, AgentResponse, ApplicationServices, PendingInput, validate_result
-from .errors import AppError
-from .schemas import JobData, Preferences, ProfileData
+from ..config import Settings
+from ..contracts import (
+    AgentCommand, AgentResponse, ApplicationServices, PendingInput,
+    RunInput, RunStart, validate_result,
+)
+from ..exceptions import AppError
+from ..schemas import JobData, Preferences, ProfileData
 
 
 @dataclass
@@ -30,9 +35,11 @@ class Run:
     task: object = None
 
 
-class RunManager:
-    def __init__(self, settings, repository, files, handler):
-        self.settings, self.repository, self.handler = settings, repository, handler
+class RunService:
+    def __init__(self, settings: Settings, repository, files, handler):
+        self.settings = settings
+        self.repository = repository
+        self.handler = handler
         self.services = ApplicationServices(repository, files)
         self.runs = {}
         self.lock = asyncio.Lock()
@@ -55,7 +62,7 @@ class RunManager:
     async def emit(self, run, kind, message, data=None):
         event = {'seq': len(run.events) + 1, 'kind': kind, 'message': self.clean(str(message)),
                  'data': self.clean(data or {}), 'at': datetime.now(UTC).isoformat()}
-        # A broken adapter must not flood the UI with unbounded inline payloads.
+        # 事件只发送摘要，避免接入代码将大文件或长文本塞进轮询响应。
         encoded = json.dumps(event, ensure_ascii=False, allow_nan=False)
         if len(encoded.encode()) > 64 * 1024:
             event['data'] = {'note': '事件数据过大，界面省略；请发送摘要'}
@@ -65,24 +72,38 @@ class RunManager:
         with (self.log_dir / (run.id + '.jsonl')).open('a', encoding='utf-8') as log:
             log.write(encoded + '\n')
 
-    def get(self, key, after=0):
+    def get(self, key: str, after=0):
         run = self.runs.get(key)
         if run is None:
             raise AppError(404, 'RUN_EXPIRED', '运行不存在或服务已重启，请重新发起')
         events = list(run.events)
         jobs = run.snapshot.get('jobs', [])
-        # Only diagnostics are redacted. Never rewrite protocol IDs or business records.
-        return deepcopy({'id': run.id, 'action': run.action, 'status': run.status, 'is_demo': run.is_demo,
-                         'context': run.context, 'subject_job_id': jobs[0]['id'] if run.action == 'interview' and jobs else None,
-                         'events': [e for e in events if e['seq'] > after], 'next_seq': events[-1]['seq'] if events else 0,
-                         'result': run.result, 'pending_input': run.pending_input, 'report_id': run.report_id})
+        # 仅诊断日志脱敏；业务字段和协议 ID 必须原样返回，不能误改用户资料。
+        return deepcopy({
+            'id': run.id, 'action': run.action, 'status': run.status, 'is_demo': run.is_demo,
+            'context': run.context,
+            'subject_job_id': jobs[0]['id'] if run.action == 'interview' and jobs else None,
+            'events': [event for event in events if event['seq'] > after],
+            'next_seq': events[-1]['seq'] if events else 0,
+            'result': run.result, 'pending_input': run.pending_input, 'report_id': run.report_id,
+        })
 
-    def snapshot(self, body):
+    def current(self):
+        active = next((
+            run for run in list(self.runs.values()) if run.status in {'running', 'needs_input'}
+        ), None)
+        return {'active': self.get(active.id) if active else None}
+
+    def snapshot(self, body: RunStart):
         if body.action == 'extract_jobs' and 'text' in body.input:
             value = body.input['text']
             if not isinstance(value, str) or not value.strip() or len(value) > 50000:
                 raise AppError(422, 'JD_TEXT', '招聘原文须为不超过 50000 字的非空文本')
-        snapshot = {'profile': self.repository.candidate('profile'), 'preferences': self.repository.candidate('preferences'), 'jobs': []}
+        snapshot = {
+            'profile': self.repository.candidate('profile'),
+            'preferences': self.repository.candidate('preferences'),
+            'jobs': [],
+        }
         if body.action in {'evaluate', 'interview'}:
             if not snapshot['profile']['confirmed']:
                 raise AppError(409, 'PROFILE_UNCONFIRMED', '请先确认简历画像')
@@ -111,16 +132,19 @@ class RunManager:
             snapshot['context_report'] = self.repository.report(key)
         return snapshot
 
-    async def start(self, body):
+    async def start(self, body: RunStart):
         async with self.lock:
             if self.handler is None:
                 raise AppError(503, 'AGENT_NOT_CONNECTED', '真实 Agent 尚未接入，请实现 career_agent.agent.handle')
             if any(r.status in {'running', 'needs_input'} for r in self.runs.values()):
                 raise AppError(409, 'RUN_BUSY', '已有活动正在进行，请先完成或结束当前活动')
-            run = Run(id=uuid.uuid4().hex, action=body.action, input=deepcopy(body.input),
-                      context=deepcopy(body.context), snapshot=self.snapshot(body), is_demo=self.settings.agent_mode == 'demo')
+            run = Run(
+                id=uuid.uuid4().hex, action=body.action, input=deepcopy(body.input),
+                context=deepcopy(body.context), snapshot=self.snapshot(body),
+                is_demo=self.settings.agent_mode == 'demo',
+            )
             self.runs[run.id] = run
-            # Completed results are in MySQL; retain a small recent runtime window only.
+            # 完成的报告已保存到 MySQL；这里只保留最近的少量运行状态。
             if len(self.runs) > 50:
                 oldest = next(iter(self.runs))
                 del self.runs[oldest]
@@ -147,7 +171,7 @@ class RunManager:
             return self.repository.save_job({**current['data'], **changes}, key, revision)
         raise AppError(422, 'INVALID_PROPOSAL', '不支持此修改目标')
 
-    async def respond(self, key, body):
+    async def respond(self, key: str, body: RunInput):
         async with self.lock:
             run = self.runs.get(key)
             if run is None:
@@ -156,6 +180,7 @@ class RunManager:
                 raise AppError(409, 'INPUT_ALREADY_USED', '该输入已处理或已失效，请刷新当前状态')
             pending = run.pending_input
             if pending['kind'] == 'proposal':
+                # 应用先保存已确认提案，之后只通知 Agent 继续，不能再次应用同一修改。
                 if body.decision not in {'confirm', 'reject'}:
                     raise AppError(422, 'DECISION_REQUIRED', '请选择确认或拒绝')
                 if body.decision == 'confirm':
@@ -184,7 +209,7 @@ class RunManager:
             value = await self.handler(command, self.services, emit)
             response = value if isinstance(value, AgentResponse) else AgentResponse.model_validate(value)
             response.data = validate_result(response.kind, response.data)
-            # Serialize once at the contract boundary before writing logs/JSON columns.
+            # 在契约边界校验可序列化性，错误结果不能进入报告表。
             json.dumps(response.model_dump(), ensure_ascii=False, allow_nan=False)
             run.result = {'kind': response.kind, 'data': deepcopy(response.data)}
             run.state = deepcopy(response.state)
@@ -202,13 +227,15 @@ class RunManager:
             run.status = 'failed'
             raise
         except Exception as exc:
-            run.status, run.pending_input = 'failed', None
+            run.status = 'failed'
+            run.pending_input = None
             code = exc.code if isinstance(exc, AppError) else 'INVALID_AGENT_OUTPUT' if isinstance(exc, ValidationError) else 'RUN_FAILED'
             message = exc.message if isinstance(exc, AppError) else f'执行失败（{type(exc).__name__}），请检查接入代码和脱敏事件。'
             run.result = {'kind': 'error', 'data': {'code': code, 'message': self.clean(message)}}
             await self.emit(run, 'error', message, {'code': code})
 
     async def close(self):
+        # 先取消后台任务，等它们退出后应用才能关闭数据库连接池。
         tasks = [r.task for r in self.runs.values() if r.task and not r.task.done()]
         for task in tasks:
             task.cancel()
