@@ -1,1 +1,1 @@
-"""Application support only. Agent implementations belong to the user."""
+"""提供前后端应用支撑；Agent 的模型、工具和决策逻辑由使用者另行实现。"""

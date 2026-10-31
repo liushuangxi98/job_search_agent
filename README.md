@@ -4,7 +4,25 @@
 
 **当前交付的是应用支撑和固定联调样例。全部 Agent 代码由你亲手实现。** 没有模型调用、OCR、RAG、地图查询、评分算法、面试决策或 LangGraph 实现。
 
-## 启动
+## 在 PyCharm 中运行（推荐）
+
+前端由 FastAPI 直接提供，**只运行根目录的 `main.py`，前后端就一起启动**。不需要另外启动前端服务或执行 npm 命令。
+
+1. 用 PyCharm 打开项目根目录 `D:\study\ai_project\job_search_agent`。
+2. 在 **Settings → Python → Interpreter** 中选择已有解释器：`D:\study\ai_project\job_search_agent\.venv\Scripts\python.exe`。不同版本也可能显示为 **Project → Python Interpreter**；若未列出，添加本地已有解释器并选择这个文件。
+3. 确认本机 MySQL 服务已启动，根目录 `.env` 已填写连接信息。你此前配置好的 `.env` 可以继续使用。
+4. 右键根目录 **`main.py` → Run 'main'**。调试时选择 **Debug 'main'**，即可在业务服务或 Agent 接入处打断点。
+5. 浏览器打开 **http://127.0.0.1:8000/** 使用前端；**http://127.0.0.1:8000/docs** 查看和测试后端接口。
+
+运行配置的脚本路径为根目录 `main.py`，工作目录为项目根目录，参数留空。代码会自动读取根目录 `.env`，无须在 PyCharm 中逐个配置数据库环境变量。
+
+首次在新环境使用时，在 PyCharm 的 Terminal 中依次运行 `.\setup.cmd`、填写 `.env`、运行 `.\init_db.cmd`，再按上述步骤运行 `main.py`。本机已安装依赖并初始化数据库后，不必重复这些步骤。数据库初始化也可使用普通 Python 运行配置：将运行目标选为 **模块 `backend.init_db`**，参数填写 `--create-database`，工作目录选择项目根目录。
+
+修改 Python 后停止并重新 Run/Debug；修改 HTML/CSS/JS 后刷新浏览器即可。停止时点击 PyCharm 的 Stop。若提示端口 8000 被占用，先停止之前通过 `start.cmd` 或另一个 Run 配置启动的本项目服务。
+
+操作入口参考 JetBrains 文档：[选择已有虚拟环境](https://www.jetbrains.com/help/pycharm/creating-virtual-environment.html)、[直接运行 Python 文件](https://www.jetbrains.com/help/pycharm/running-without-any-previous-configuring.html)。
+
+## 使用 Windows 脚本启动
 
 环境要求：Windows、Python 3.13、MySQL 8.0。前端无 Node 构建步骤、无 CDN。
 

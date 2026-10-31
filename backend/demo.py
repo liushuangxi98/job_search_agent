@@ -1,4 +1,4 @@
-"""Fixed UI fixtures, NOT an Agent. Inputs never drive inference or scoring."""
+"""提供固定界面联调样例，不根据输入执行推理、评分或真实工具调用。"""
 from copy import deepcopy
 
 from .contracts import AgentResponse
@@ -31,10 +31,16 @@ NOTICE = '固定联调样例；未调用模型或外部工具，与输入内容�
 
 
 def examples():
+    """返回示例画像、条件和岗位的深拷贝，避免界面编辑影响后续请求使用的固定样例。"""
     return deepcopy({'profile': PROFILE, 'preferences': PREFERENCES, 'jobs': JOBS, 'notice': NOTICE})
 
 
 async def handle(command, services, emit):
+    """按动作和演示场景返回 AgentResponse；通过 emit 展示事件，不直接写入资料。
+
+    command 携带初始快照、续接状态和人工输入；services 只为保持真实入口签名兼容。
+    可模拟等待输入、部分结果和失败，失败场景抛 AppError；分数不评价实际输入。
+    """
     await emit('tool', '读取固定联调样例', {'notice': NOTICE})
     scenario = command.input.get('demo_scenario', 'success')
     human = command.human_input
@@ -60,7 +66,7 @@ async def handle(command, services, emit):
         ], 'coverage': ['工具调用（演示）'], 'notice': NOTICE + ' 尚未创建向量索引。'})
     if command.action == 'evaluate':
         items = []
-        # Scores are literal fixtures. No matching, salary or commute algorithm is implemented.
+        # 分数是固定样例值，没有实现匹配、薪资或通勤计算。
         scores = [(80, 100, 80, 85), (70, 80, 60, 71)]
         for index, job in enumerate(command.snapshot['jobs']):
             match, salary, commute, total = scores[index % len(scores)]
@@ -76,6 +82,7 @@ async def handle(command, services, emit):
         return AgentResponse(status='partial' if scenario == 'partial' else 'completed', kind='evaluation_report',
                              data={'title': '岗位对比报告 · 模拟', 'summary': NOTICE, 'jobs': items})
     if command.action == 'interview':
+        # 续接状态由运行服务在下一次调用时交回，未完成的面试不会保存到报告表。
         answers = deepcopy(command.state.get('answers', []))
         if human and human['decision'] == 'answer':
             index = len(answers)

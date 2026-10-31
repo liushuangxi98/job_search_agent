@@ -22,6 +22,11 @@ from .services.system_service import SystemService
 
 
 def create_app(settings: Settings | None = None, handler=None) -> FastAPI:
+    """装配并返回 FastAPI 应用，不在这里监听网络端口。
+
+    settings 为 None 时读取项目配置，handler 为 None 时按模式加载 Agent 入口。
+    创建上传、日志目录及连接池对象；实际数据库操作由后续业务请求触发。
+    """
     settings = settings or Settings()
     database = Database(settings)
     candidates = CandidateService(database.session_factory)
@@ -33,8 +38,10 @@ def create_app(settings: Settings | None = None, handler=None) -> FastAPI:
     handler = handler if handler is not None else load_handler(settings.agent_mode)
     runs = RunService(settings, agent_data, documents, handler)
 
+    # FastAPI 进入这个上下文后提供服务，退出时执行 yield 后的资源清理。
     @asynccontextmanager
     async def lifespan(app):
+        """提供应用生命周期上下文；关闭时先等待后台运行退出，再释放连接池。"""
         try:
             yield
         finally:
@@ -45,6 +52,7 @@ def create_app(settings: Settings | None = None, handler=None) -> FastAPI:
                 database.close()
 
     app = FastAPI(title='求职决策 Agent · 应用支撑', lifespan=lifespan)
+    # 服务对象在当前应用内复用；共享服务不代表共享一次数据库操作的 Session。
     app.state.settings = settings
     app.state.database = database
     app.state.candidate_service = candidates
@@ -62,6 +70,7 @@ def create_app(settings: Settings | None = None, handler=None) -> FastAPI:
 
     @app.get('/')
     def index():
+        """响应 GET /，返回前端页面文件；浏览器再从 /static 加载脚本和样式。"""
         return FileResponse(ROOT / 'frontend' / 'index.html')
 
     app.mount('/static', StaticFiles(directory=ROOT / 'frontend', check_dir=False), name='frontend')

@@ -1,3 +1,4 @@
+"""提供 MySQL 初始化命令，将数据库连接或权限错误转换成命令行失败提示。"""
 import argparse
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -7,6 +8,7 @@ from .database import initialize_database
 
 
 def main():
+    """读取 --create-database 后执行初始化；成功打印提示，数据库失败则退出进程。"""
     parser = argparse.ArgumentParser(description='只创建项目库和缺失的表，不清空已有数据')
     parser.add_argument('--create-database', action='store_true')
     args = parser.parse_args()

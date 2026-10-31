@@ -20,6 +20,9 @@ from ..schemas import JobData, Preferences, ProfileData
 
 @dataclass
 class Run:
+    """由 dataclass 生成初始化方法的内存状态，不是数据库表模型。
+    snapshot 是初始资料，state 是 Agent 返回的续接状态。
+    """
     id: str
     action: str
     input: dict
@@ -27,6 +30,7 @@ class Run:
     snapshot: dict
     is_demo: bool
     status: str = 'running'
+    # 每个运行使用独立的可变容器；dataclass 的工厂在创建实例时才生成列表或字典。
     events: list = field(default_factory=list)
     result: dict | None = None
     pending_input: dict | None = None
@@ -36,7 +40,12 @@ class Run:
 
 
 class RunService:
+    """协调应用与异步 Agent 的交接，不实现模型调用、工具循环或业务评分。"""
     def __init__(self, settings: Settings, repository, files, handler):
+        """接收配置、资料/文件服务和异步入口，准备内存状态与本地日志目录。
+
+        repository 使用 AgentDataService 的普通存取接口；handler 可为 None，启动运行时再拒绝。
+        """
         self.settings = settings
         self.repository = repository
         self.handler = handler
@@ -47,6 +56,10 @@ class RunService:
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
     def clean(self, value):
+        """按已知字段名、配置密码和常见令牌模式返回脱敏值，不原地修改输入。
+
+        只用于诊断信息，不处理业务快照；这些规则不能识别所有可能的机密格式。
+        """
         if isinstance(value, dict):
             return {k: '[REDACTED]' if k.lower() in {'api_key', 'password', 'secret', 'authorization', 'access_token', 'mysql_password'}
                     else self.clean(v) for k, v in value.items()}
@@ -60,6 +73,11 @@ class RunService:
         return value
 
     async def emit(self, run, kind, message, data=None):
+        """为指定运行追加带序号的脱敏事件，并写入本地 JSONL，成功无返回值。
+
+        kind 标识事件类别，data 为空时用空字典；过大事件缩减为摘要。
+        JSON 序列化或日志写入失败会抛异常，不能把该方法视为不会失败的日志操作。
+        """
         event = {'seq': len(run.events) + 1, 'kind': kind, 'message': self.clean(str(message)),
                  'data': self.clean(data or {}), 'at': datetime.now(UTC).isoformat()}
         # 事件只发送摘要，避免接入代码将大文件或长文本塞进轮询响应。
@@ -73,6 +91,11 @@ class RunService:
             log.write(encoded + '\n')
 
     def get(self, key: str, after=0):
+        """返回运行状态副本，仅附带序号大于 after 的事件。
+
+        key 是运行 ID；无新增事件返回空列表，但仍返回当前结果和待处理输入。
+        运行已重启丢失或移出内存保留窗口时抛 AppError，不从报告表恢复运行。
+        """
         run = self.runs.get(key)
         if run is None:
             raise AppError(404, 'RUN_EXPIRED', '运行不存在或服务已重启，请重新发起')
@@ -89,12 +112,18 @@ class RunService:
         })
 
     def current(self):
+        """返回 running 或 needs_input 状态的活动；没有活动时返回 {'active': None}。"""
         active = next((
             run for run in list(self.runs.values()) if run.status in {'running', 'needs_input'}
         ), None)
         return {'active': self.get(active.id) if active else None}
 
     def snapshot(self, body: RunStart):
+        """按 RunStart 的动作和输入检查前提，返回运行使用的资料快照。
+
+        包含画像、条件及动作需要的岗位或资料；前提不满足时抛 AppError。
+        读取的是发起时资料，后续人工修改不会替换这份快照。
+        """
         if body.action == 'extract_jobs' and 'text' in body.input:
             value = body.input['text']
             if not isinstance(value, str) or not value.strip() or len(value) > 50000:
@@ -133,6 +162,12 @@ class RunService:
         return snapshot
 
     async def start(self, body: RunStart):
+        """为已校验的 RunStart 建立后台任务，返回可供轮询的运行字典。
+
+        入口未接入、已有活动或输入前提不满足时抛 AppError，不创建新运行。
+        运行仅在内存保留，接口不等待 Agent 完成。
+        """
+        # 这把锁只协调发起运行与人工输入，不锁住其他资料接口或数据库。
         async with self.lock:
             if self.handler is None:
                 raise AppError(503, 'AGENT_NOT_CONNECTED', '真实 Agent 尚未接入，请实现 career_agent.agent.handle')
@@ -148,10 +183,16 @@ class RunService:
             if len(self.runs) > 50:
                 oldest = next(iter(self.runs))
                 del self.runs[oldest]
+            # 将执行安排到同一事件循环；create_task 不会为同步数据库操作另开线程。
             run.task = asyncio.create_task(self.execute(run))
             return self.get(run.id)
 
     def apply_proposal(self, proposal):
+        """将提案合并到当前画像、条件或岗位，返回更新后的资料字典。
+
+        调用方须先确认用户选择了 confirm；这里仍检查字段和读取时的修订号。
+        提案非法、记录缺失、修订冲突或数据校验失败时抛出相应异常。
+        """
         target, changes = proposal.get('target'), proposal.get('changes')
         if not isinstance(changes, dict) or not changes:
             raise AppError(422, 'INVALID_PROPOSAL', '修改提案为空或格式错误')
@@ -172,6 +213,11 @@ class RunService:
         raise AppError(422, 'INVALID_PROPOSAL', '不支持此修改目标')
 
     async def respond(self, key: str, body: RunInput):
+        """消费当前待处理输入并返回运行状态；重复或过期 input_id 会抛 AppError。
+
+        确认提案后先保存再续接 Agent，拒绝不保存；提案保存失败仍保留待处理输入。
+        面试的 finish 交给 Agent 生成报告，其他活动的 finish 直接结束。
+        """
         async with self.lock:
             run = self.runs.get(key)
             if run is None:
@@ -198,14 +244,21 @@ class RunService:
             return self.get(key)
 
     async def execute(self, run, human=None):
+        """调用异步入口并更新 run，成功无返回值；human 是本轮人工输入，首次为 None。
+
+        校验输出后更新内存状态，并保存 completed/partial 的评估或面试报告。
+        执行异常标记为 failed 并尝试记录错误；取消请求标记失败后继续向外传播。
+        """
         try:
             await self.emit(run, 'status', '继续执行' if human else '开始执行', {'mode': self.settings.agent_mode})
             command = AgentCommand(run.id, run.action, deepcopy(run.input), deepcopy(run.context),
                                    deepcopy(run.snapshot), deepcopy(run.state), human)
 
             async def emit(kind, message, data=None):
+                """把 Agent 的事件绑定到本次运行，沿用外层的脱敏和日志写入。"""
                 await self.emit(run, kind, message, data)
 
+            # await 等待入口交回结果；当前方法中的同步 SQL 和文件操作仍占用事件循环。
             value = await self.handler(command, self.services, emit)
             response = value if isinstance(value, AgentResponse) else AgentResponse.model_validate(value)
             response.data = validate_result(response.kind, response.data)
@@ -213,6 +266,7 @@ class RunService:
             json.dumps(response.model_dump(), ensure_ascii=False, allow_nan=False)
             run.result = {'kind': response.kind, 'data': deepcopy(response.data)}
             run.state = deepcopy(response.state)
+            # 只有 needs_input 生成续接入口；partial 表示当前运行已结束但结果不完整。
             if response.status == 'needs_input':
                 pending = PendingInput.model_validate(response.pending_input).model_dump(exclude_none=True)
                 pending['id'] = uuid.uuid4().hex
@@ -235,6 +289,7 @@ class RunService:
             await self.emit(run, 'error', message, {'code': code})
 
     async def close(self):
+        """取消并等待尚未结束的后台任务，成功无返回值；不保存未完成运行的恢复检查点。"""
         # 先取消后台任务，等它们退出后应用才能关闭数据库连接池。
         tasks = [r.task for r in self.runs.values() if r.task and not r.task.done()]
         for task in tasks:
