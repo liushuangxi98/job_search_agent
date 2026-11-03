@@ -5,3 +5,4 @@ pydantic-settings==2.16.2
 SQLAlchemy==2.0.55
 PyMySQL[rsa]==1.2.3
 python-multipart==0.0.32
+langchain_openai==1.7.3
