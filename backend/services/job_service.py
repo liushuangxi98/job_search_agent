@@ -7,6 +7,7 @@ from ..exceptions import AppError
 from ..repositories.document_repository import DocumentRepository
 from ..repositories.job_repository import JobRepository
 from ..schemas import JobData
+from .material_validation import job_missing
 
 
 class JobService:
@@ -17,11 +18,14 @@ class JobService:
     @staticmethod
     def serialize(repository, row):
         """用当前仓库读取来源 ID，返回岗位字典；row 为 ORM 行，创建时间按 UTC 展示。"""
+        data = {**deepcopy(row.data), 'source_ids': repository.source_ids(row.id)}
+        data.setdefault('blind_spots', {})
+        missing = job_missing(data)
         return {
             'id': row.id,
             'revision': row.revision,
             'created_at': row.created_at.isoformat() + 'Z',
-            'data': {**deepcopy(row.data), 'source_ids': repository.source_ids(row.id)},
+            'data': data, 'missing': missing, 'ready': not missing,
         }
 
     def get(self, job_id: str):
@@ -50,6 +54,9 @@ class JobService:
         数据校验、来源缺失或修订冲突会抛出异常，岗位与来源关联一起回滚。
         """
         data = JobData.model_validate(data).model_dump()
+        missing = job_missing(data)
+        if missing:
+            raise AppError(422, 'JOB_INCOMPLETE', '请补齐或确认信息盲区：' + '、'.join(item['label'] for item in missing))
         source_ids = list(dict.fromkeys(data.pop('source_ids')))
         with self.session_factory.begin() as session:
             repository = JobRepository(session)
@@ -69,8 +76,14 @@ class JobService:
                 repository.replace_sources(row.id, source_ids)
             else:
                 # 公司和岗位名只缩小候选范围；其余字段也完全相同时才复用已有岗位。
-                candidates = repository.find_matches(data['company'], data['title'])
-                row = next((item for item in candidates if item.data == data), None)
+                # 未披露的公司或岗位不能充当去重依据，避免不同招聘记录被误合并。
+                identifiable = data['company'] and data['title'] and not (
+                    {'company', 'title'} & set(data['blind_spots'])
+                )
+                candidates = repository.find_matches(data['company'], data['title']) if identifiable else []
+                # 旧 JSON 可能尚无 blind_spots 等默认字段，按同一数据格式比较才能复用原 ID。
+                row = next((item for item in candidates
+                            if JobData.model_validate(item.data).model_dump(exclude={'source_ids'}) == data), None)
                 if row is None:
                     row = repository.add(data)
                 else:

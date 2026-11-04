@@ -2,6 +2,18 @@
 
 这份文档定义应用边界，不提供 Agent 业务实现。你负责模型、工具、解析、RAG、评分、面试、记忆和评测。
 
+## 三入口工作台的当前资料流程（2026-11-04）
+
+个人资料统一使用 `GET/PUT /api/candidate`。PUT 提交 `{revision, profile, preferences}`，一次事务确认并保存，修订号仅增加一次。GET 返回这两部分、`revision/confirmed` 及 `missing:[{field,label}]`。
+
+个人核心字段必须完整：`profile.name/education/experience_years/skills/experience/projects`，以及 `preferences.direction/city/commute_origin/salary_min/salary_max`。工作年限允许 0；`experience` 表示工作经历，`projects` 是独立的项目经历。姓名、学历和期望薪资均不是可选项。旧资料缺项时需要重新完善确认，个人资料不能用信息盲区放行。
+
+简历解析须同时返回画像和求职条件。字段缺失或含义不清时使用 `needs_input` 提问；最终返回草稿，由页面核对后统一保存。应用检查基础完整性，不代替 Agent 理解原文或判断经历真假。
+
+岗位缺少 `company/title/city/address/jd_text/salary` 时，必须补齐或在 `blind_spots` 中记录招聘方未披露的说明。例如 `{"address":"招聘方尚未提供具体办公地点"}`；`salary` 同时对应薪资上下限。用户须在入库前确认盲区。未知文本可用空字符串，未知薪资用 `null`，不能编造或填零。岗位对象提供 `ready/missing` 供界面在操作入口提示完善。
+
+上传原件及文件元数据可以先保存，画像确认和岗位入池发生在资料核对完成后。真实能力未接入不能伪装成诊断成功；demo 仅用固定结果演示流程。
+
 ## 入口
 
 你创建 `career_agent/agent.py`，提供：
@@ -58,15 +70,17 @@
 
 | kind | data 的主要字段 |
 | --- | --- |
-| `profile_draft` | `profile`（符合 ProfileData）、可选 `notice` |
-| `job_drafts` | `jobs`（JobData 列表）、可选 `notice` |
+| `profile_draft` | `profile`（ProfileData）、`preferences`（Preferences）均必填；可选 `diagnosis` 字符串列表、`notice` |
+| `job_drafts` | `jobs`（JobDraft 列表，含 `blind_spots`）、可选 `diagnosis`、`notice` |
 | `knowledge_result` | `questions`、`coverage`、`notice`；真实入库/索引由你的处理代码完成 |
-| `evaluation_report` | `title`、`summary`、`jobs`；每岗包含 `job_id/company/title`、四项分数、`gaps/recommendation/missing/evidence/commutes` |
+| `evaluation_report` | `title/summary/jobs`；每岗包含 `job_id/company/title/match_score/matches/strengths/gaps/recommendation/missing/evidence/commutes` |
 | `interview_question` | `round`、`question`、`question_id`、`source` |
 | `interview_report` | `title/summary/dimensions/answers/weaknesses/practice` |
 | `chat` | `message`、可选 `notice` |
 
-分数为 `0—100` 或 `null`；后端检查字段和范围，不计算你的匹配与加权算法。`commutes` 使用 `public_transit / driving`，各项包含 `duration_minutes / distance_km`，失败用 `null`。模型缺失、接口失败不能伪装成零分或零分钟。
+匹配分为独立的 `0—100` 或 `null`；后端检查范围，不计算匹配算法，也不计算薪资分、通勤分、总分或排名。`matches` 每项包含 `requirement`（岗位要求）、`evidence`（经历依据文字）和 `assessment`（matched/partial/gap/unknown）。未知证据不能等同于用户不具备能力。
+
+`commutes` 使用 `public_transit / driving`，各项包含 `duration_minutes / distance_km / route_summary`；分别为单程分钟、公里和主要路线说明。耗时/距离未知用 `null`，路线未知用空字符串。模型缺失、接口失败不能伪装成零分、零分钟或虚构路线。
 
 评估/面试报告在 `completed` 或 `partial` 时由运行容器自动保存一次，包含输入快照。不要为同一运行重复生成不同报告。面试问答证据需要你在最终 `answers` 中返回，未完成状态不保存。
 
@@ -96,7 +110,7 @@
 
 ## 输出校验与界面恢复
 
-应用按 `kind` 校验界面会读取的字段和数组，结构错误不会保存为完成报告。岗位草稿允许公司或职位暂缺，用户可在预览中补齐或跳过；正式入库仍要求公司和职位有效。分项分数缺失时总分必须为空，但加权计算仍由你的代码实现。
+应用按 `kind` 校验字段和数组，结构错误不会保存为完成报告。岗位草稿允许字段暂缺，用户在预览中补齐、确认盲区或跳过。新评估结果只保留当前 ReportJob 的字段，忽略旧薪资分、通勤分和总分；数据库中的历史报告不被改写，仍可按原快照查看和导出。
 
 运行查询额外返回 `context` 和 `subject_job_id`，用于刷新后回到同一个面试岗位。历史运行的展示不替换正在进行的活动。轮询失败仅重试状态 GET，不重发模型操作 POST；413 不自动重试。
 

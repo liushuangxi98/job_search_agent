@@ -32,3 +32,11 @@ class CandidateRepository:
             row.confirmed = confirmed
         row.revision += 1
         self.session.flush()
+
+    def confirm(self, row: Candidate, profile: dict, preferences: dict):
+        """同一事务保存两部分资料，统一确认，修订号只增加一次。"""
+        row.profile = profile
+        row.preferences = preferences
+        row.confirmed = True
+        row.revision += 1
+        self.session.flush()

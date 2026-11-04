@@ -1,13 +1,17 @@
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
+from workbench_fixtures import complete_job, complete_preferences, complete_profile
 
 
 def test_profile_persists_json_and_rejects_stale_update(client, settings):
+    preferences = client.get('/api/preferences').json()
+    assert client.put('/api/preferences', json={
+        'revision': preferences['revision'], 'data': complete_preferences(),
+    }).status_code == 200
     initial = client.get('/api/profile').json()
     payload = {'revision': initial['revision'], 'confirmed': True,
-               'data': {'name': '求职者 🧑‍💻', 'summary': '四年 Python 测试开发',
-                        'skills': ['Python', '自动化测试']}}
+               'data': complete_profile(name='求职者 🧑‍💻', summary='四年 Python 测试开发')}
     saved = client.put('/api/profile', json=payload)
     assert saved.status_code == 200
     assert saved.json()['revision'] == initial['revision'] + 1
@@ -27,8 +31,8 @@ def test_invalid_preferences_do_not_change_database(client):
 
 
 def test_job_sources_unknown_id_rolls_back_and_search_works(client):
-    job = {'company': '星河科技', 'title': 'Agent 应用开发', 'city': '杭州',
-           'jd_text': 'Python 与 RAG', 'source_ids': ['missing']}
+    job = complete_job(company='星河科技', jd_text='Python 与 RAG', source_ids=['missing'],
+                       salary_min=None, salary_max=None, blind_spots={'salary': '招聘方未披露薪资'})
     assert client.post('/api/jobs', json=job).status_code == 404
     assert client.get('/api/jobs').json()['total'] == 0
     job['source_ids'] = []

@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
+from workbench_fixtures import complete_job
 
 
 def test_frontend_entry_and_module_are_served_without_exposing_project_files(settings):
@@ -22,7 +23,7 @@ def test_active_run_can_be_rediscovered_after_page_reload(client):
 
 
 def test_exact_duplicate_job_reuses_record_and_distinct_jd_is_preserved(client):
-    data = {'company': '同一公司', 'title': '开发', 'city': '杭州', 'address': '同一地址', 'jd_text': '原始要求'}
+    data = complete_job(company='同一公司', title='开发', address='同一地址', jd_text='原始要求')
     first = client.post('/api/jobs', json=data).json()
     again = client.post('/api/jobs', json=data).json()
     assert first['id'] == again['id']

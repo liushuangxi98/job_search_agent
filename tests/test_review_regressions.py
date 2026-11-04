@@ -8,6 +8,7 @@ from backend.app import create_app
 from backend.contracts import AgentResponse
 from backend.services.run_service import Run, RunService
 from test_runs_api import ready_profile, start
+from workbench_fixtures import complete_job
 
 
 def upload_md(client, name):
@@ -19,7 +20,7 @@ def upload_md(client, name):
 
 def test_new_source_merge_invalidates_old_job_edit(client):
     a, b = upload_md(client, 'A.md'), upload_md(client, 'B.md')
-    data = {'company': '来源合并公司', 'title': '开发', 'jd_text': '同一份描述', 'source_ids': [a]}
+    data = complete_job(company='来源合并公司', title='开发', jd_text='同一份描述', source_ids=[a])
     original = client.post('/api/jobs', json=data).json()
     merged = client.post('/api/jobs', json={**data, 'source_ids': [b]}).json()
     assert merged['id'] == original['id']
@@ -124,7 +125,7 @@ def test_invalid_pasted_jd_is_rejected_before_handler(settings, value):
 
 def test_interview_subject_is_available_after_page_reload(client):
     ready_profile(client)
-    job = client.post('/api/jobs', json={'company': '面试上下文', 'title': '开发'}).json()
+    job = client.post('/api/jobs', json=complete_job(company='面试上下文', title='开发')).json()
     run = start(client, 'interview', job_id=job['id'])
     current = client.get('/api/runs').json()['active']
     assert current['subject_job_id'] == job['id']

@@ -16,6 +16,7 @@ from ..contracts import (
 )
 from ..exceptions import AppError
 from ..schemas import JobData, Preferences, ProfileData
+from .material_validation import candidate_missing, job_missing
 
 
 @dataclass
@@ -136,10 +137,15 @@ class RunService:
         if body.action in {'evaluate', 'interview'}:
             if not snapshot['profile']['confirmed']:
                 raise AppError(409, 'PROFILE_UNCONFIRMED', '请先确认简历画像')
+            missing = candidate_missing(snapshot['profile']['data'], snapshot['preferences']['data'])
+            if missing:
+                raise AppError(409, 'CANDIDATE_INCOMPLETE', '请先完善个人资料：' + '、'.join(item['label'] for item in missing))
             ids = body.input.get('job_ids', []) if body.action == 'evaluate' else [body.input.get('job_id')]
             if not isinstance(ids, list) or not 1 <= len(ids) <= 10 or any(not isinstance(x, str) for x in ids):
                 raise AppError(422, 'JOB_SELECTION', '请选中 1—10 个岗位')
             snapshot['jobs'] = [self.repository.job(key) for key in dict.fromkeys(ids)]
+            if any(job_missing(job['data']) for job in snapshot['jobs']):
+                raise AppError(409, 'JOB_INCOMPLETE', '请先完善岗位资料，或明确确认招聘信息盲区')
         if body.action in {'parse_resume', 'extract_jobs', 'index_knowledge'}:
             key = body.input.get('document_id')
             if key:

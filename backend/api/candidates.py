@@ -1,12 +1,24 @@
 """当前画像和求职条件接口。"""
 from fastapi import APIRouter
 
-from ..schemas import PreferencesUpdate, ProfileUpdate
+from ..schemas import CandidateUpdate, PreferencesUpdate, ProfileUpdate
 from .dependencies import CandidateServiceDep
 
 # FastAPI 按模型声明从 JSON 请求体生成 body 并校验字段，model_dump() 再将其转为服务接收的字典。
 # 画像和条件共用修订号；任一保存后，另一个页面持有的旧修订号也会失效。
 router = APIRouter(tags=['候选人'])
+
+
+@router.get('/candidate')
+def candidate(service: CandidateServiceDep):
+    """同屏读取画像、条件及缺项，旧资料不完整时提示先完善。"""
+    return service.get_all()
+
+
+@router.put('/candidate')
+def confirm_candidate(body: CandidateUpdate, service: CandidateServiceDep):
+    """统一确认并保存个人资料，失败时不产生部分写入。"""
+    return service.confirm(body.profile.model_dump(), body.preferences.model_dump(), body.revision)
 
 
 @router.get('/profile')

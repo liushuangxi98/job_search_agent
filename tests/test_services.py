@@ -8,11 +8,14 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.exceptions import AppError
+from workbench_fixtures import complete_job, complete_preferences, complete_profile
 
 
 def test_service_cannot_clear_a_confirmed_profile(client):
     service = client.app.state.candidate_service
-    saved = service.update('profile', {'summary': 'Python 开发'}, 0, confirmed=True)
+    preferences = service.update('preferences', complete_preferences(), 0)
+    saved = service.update('profile', complete_profile(summary='Python 开发'),
+                           preferences['revision'], confirmed=True)
 
     with pytest.raises(ValidationError):
         service.update('profile', {}, saved['revision'])
@@ -36,7 +39,7 @@ def test_service_failed_job_update_preserves_data_and_sources(client):
     documents = client.app.state.document_service
     source = asyncio.run(documents.save(UploadFile(BytesIO(b'# RAG'), filename='questions.md'), 'knowledge'))
     service = client.app.state.job_service
-    saved = service.save({'company': '事务公司', 'title': '开发', 'source_ids': [source['id']]})
+    saved = service.save(complete_job(company='事务公司', title='开发', source_ids=[source['id']]))
 
     with pytest.raises(AppError):
         service.save({**saved['data'], 'title': '不应保存', 'source_ids': ['missing']},
@@ -76,6 +79,8 @@ def test_database_initialization_preserves_existing_data(client, settings):
     from backend.database import initialize_database
 
     service = client.app.state.candidate_service
-    saved = service.update('profile', {'summary': '重启后应保留'}, 0, confirmed=True)
+    preferences = service.update('preferences', complete_preferences(), 0)
+    saved = service.update('profile', complete_profile(summary='重启后应保留'),
+                           preferences['revision'], confirmed=True)
     initialize_database(settings)
     assert service.get('profile') == saved

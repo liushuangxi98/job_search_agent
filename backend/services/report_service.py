@@ -73,14 +73,22 @@ def markdown(report):
              '> 模拟数据：没有实际评估输入内容。' if report['is_demo'] else '> 基于本次运行保存的输入快照。',
              '', str(data.get('summary', '')), '']
     if report['kind'] == 'evaluation':
-        lines += ['| 公司 | 岗位 | 总分 | 匹配 | 薪资 | 通勤 |', '| --- | --- | ---: | ---: | ---: | ---: |']
         def cell(value):
-            return '待补充' if value is None else str(value).replace('|', '\\|').replace('\n', ' ')
+            return '未知' if value is None or value == '' else str(value).replace('|', '\\|').replace('\n', ' ')
         for row in data.get('jobs', []):
-            lines.append('| ' + ' | '.join(cell(row.get(key)) for key in ('company', 'title', 'total_score', 'match_score', 'salary_score', 'commute_score')) + ' |')
-        for row in data.get('jobs', []):
-            lines += ['', '## ' + row.get('company', ''), row.get('recommendation', '')]
-            lines += ['- ' + text for text in row.get('gaps', [])]
+            lines += ['', '## ' + cell(row.get('company')) + ' · ' + cell(row.get('title')),
+                      '', '匹配分：' + cell(row.get('match_score')), '', row.get('recommendation', '')]
+            lines += ['', '### 匹配依据']
+            for item in row.get('matches', []):
+                lines += ['- 要求：' + item.get('requirement', ''), '  依据：' + item.get('evidence', '')]
+            for name, field in [('优势', 'strengths'), ('差距', 'gaps'), ('信息盲区', 'missing')]:
+                lines += ['', '### ' + name] + ['- ' + text for text in row.get(field, [])]
+            lines += ['', '### 单程通勤', '| 方式 | 分钟 | 公里 | 主要路线 |', '| --- | ---: | ---: | --- |']
+            for mode, label in [('public_transit', '公共交通'), ('driving', '驾车')]:
+                route = row.get('commutes', {}).get(mode, {})
+                lines.append('| ' + label + ' | ' + ' | '.join(
+                    cell(route.get(key)) for key in ('duration_minutes', 'distance_km', 'route_summary')
+                ) + ' |')
     else:
         for item in data.get('answers', []):
             lines += ['## ' + item.get('question', ''), '', item.get('answer', ''), '']

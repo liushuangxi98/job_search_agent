@@ -7,7 +7,8 @@ from .exceptions import AppError
 PROFILE = {'name': '示例求职者', 'headline': 'Python 自动化测试开发 · 转向 Agent 应用',
            'summary': '四年 Python 自动化测试开发经验，正在学习 Agent 应用开发。',
            'skills': ['Python', '自动化测试', '接口测试'], 'experience': '构建接口自动化测试及持续集成流程。',
-           'education': '', 'evidence': []}
+           'education': '本科 · 计算机相关专业（示例）', 'experience_years': 4,
+           'projects': '开发接口自动化测试平台，支持用例执行和测试报告汇总（固定示例）。', 'evidence': []}
 PREFERENCES = {'city': '杭州', 'direction': 'Python Agent 应用开发', 'salary_min': 20000,
                'salary_max': 30000, 'commute_origin': '杭州西湖区', 'commute_limit_minutes': 60,
                'commute_mode': 'public_transit'}
@@ -56,9 +57,27 @@ async def handle(command, services, emit):
             pending = {'kind': 'question', 'prompt': '演示地址歧义：请补充或确认办公地址。'}
         return AgentResponse(status='needs_input', kind='chat', data={'message': pending['prompt'], 'notice': NOTICE}, pending_input=pending)
     if command.action == 'parse_resume':
-        return AgentResponse(kind='profile_draft', data={'profile': deepcopy(PROFILE), 'notice': NOTICE})
+        profile, preferences = deepcopy(PROFILE), deepcopy(PREFERENCES)
+        diagnosis = ['固定样例：请核对姓名、学历、工作年限、经历与求职条件，再统一确认。']
+        if scenario == 'partial':
+            profile['projects'] = ''
+            diagnosis.append('固定缺项示例：请补充项目经历，个人核心资料不能标为信息盲区。')
+        return AgentResponse(
+            status='partial' if scenario == 'partial' else 'completed', kind='profile_draft',
+            data={'profile': profile, 'preferences': preferences, 'diagnosis': diagnosis, 'notice': NOTICE},
+        )
     if command.action == 'extract_jobs':
-        return AgentResponse(kind='job_drafts', data={'jobs': deepcopy(JOBS), 'notice': NOTICE})
+        jobs = deepcopy(JOBS)
+        if command.input.get('document_id'):
+            for job in jobs:
+                job['source_ids'] = [command.input['document_id']]
+        if scenario == 'partial':
+            jobs[0]['address'] = ''
+            jobs[0]['blind_spots'] = {'address': '招聘方未披露具体办公地点（模拟盲区）'}
+        return AgentResponse(kind='job_drafts', data={
+            'jobs': jobs, 'diagnosis': ['核对岗位字段；未披露项目请逐项确认信息盲区后入库。'],
+            'notice': NOTICE,
+        })
     if command.action == 'index_knowledge':
         return AgentResponse(kind='knowledge_result', data={'questions': [
             {'question': QUESTIONS[0], 'answer': '固定演示答案：工具调用由程序执行并返回观察结果。',
@@ -66,21 +85,28 @@ async def handle(command, services, emit):
         ], 'coverage': ['工具调用（演示）'], 'notice': NOTICE + ' 尚未创建向量索引。'})
     if command.action == 'evaluate':
         items = []
-        # 分数是固定样例值，没有实现匹配、薪资或通勤计算。
-        scores = [(80, 100, 80, 85), (70, 80, 60, 71)]
+        # 只展示独立匹配分和路线样例，不进行真实评分、查询或排名。
+        scores = [80, 70]
         for index, job in enumerate(command.snapshot['jobs']):
-            match, salary, commute, total = scores[index % len(scores)]
-            partial = scenario == 'partial' and index == len(command.snapshot['jobs']) - 1
+            blind_spots = job['data'].get('blind_spots', {})
+            partial = bool(blind_spots.get('address')) or (scenario == 'partial' and index == len(command.snapshot['jobs']) - 1)
             items.append({'job_id': job['id'], 'company': job['data']['company'], 'title': job['data']['title'],
-                          'match_score': match, 'salary_score': salary, 'commute_score': None if partial else commute,
-                          'total_score': None if partial else total,
+                          'match_score': None if blind_spots.get('jd_text') else scores[index % len(scores)],
+                          'matches': [{'requirement': 'Python 开发与工具调用（固定示例）',
+                                       'evidence': 'Python 自动化测试经历（固定示例）', 'assessment': 'partial'}],
+                          'strengths': ['Python 工程与自动化测试经验（固定示例）'],
                           'gaps': ['需要补充可展示的 Agent 项目经历（固定示例）'],
                           'recommendation': '演示建议：查看技能差距，补充资料后再做真实评估。',
-                          'missing': ['通勤信息待补充'] if partial else [], 'evidence': [],
-                          'commutes': {'public_transit': {'duration_minutes': None if partial else 45, 'distance_km': 18},
-                                       'driving': {'duration_minutes': 30, 'distance_km': 16}}})
-        return AgentResponse(status='partial' if scenario == 'partial' else 'completed', kind='evaluation_report',
-                             data={'title': '岗位对比报告 · 模拟', 'summary': NOTICE, 'jobs': items})
+                          'missing': list(blind_spots.values()) + (['通勤信息待补充'] if partial else []), 'evidence': [],
+                          'commutes': {'public_transit': {
+                              'duration_minutes': None if partial else 45, 'distance_km': None if partial else 18,
+                              'route_summary': '' if partial else '步行 → 地铁 → 步行（固定路线样例）'},
+                              'driving': {'duration_minutes': None if partial else 30,
+                                          'distance_km': None if partial else 16,
+                                          'route_summary': '' if partial else '城市道路 → 园区道路（固定路线样例）'}}})
+        return AgentResponse(status='partial' if any(item['missing'] for item in items) else 'completed',
+                             kind='evaluation_report',
+                             data={'title': '岗位评估报告 · 模拟', 'summary': NOTICE, 'jobs': items})
     if command.action == 'interview':
         # 续接状态由运行服务在下一次调用时交回，未完成的面试不会保存到报告表。
         answers = deepcopy(command.state.get('answers', []))

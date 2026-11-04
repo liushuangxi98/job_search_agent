@@ -12,8 +12,8 @@ class Payload(BaseModel):
 
 
 class ProfileData(Payload):
-    # 所有画像字段均可省略，常用于逐步补齐草稿；ProfileDraftData 的 profile 本身仍是必填 key。
-    # 用户确认画像时，ProfileUpdate 另要求 summary、experience、skills 至少有一项非空。
+    # 草稿允许缺项；正式确认统一检查姓名、学历、工作年限、技能、工作经历和项目经历。
+    # 个人核心资料不可用“招聘方未披露”等信息盲区说明替代。
     # 姓名；可省略，默认 ""，最多 100 字符；示例："王某"。
     name: str = Field(default='', max_length=100)
     # 职业概述或求职标题；可省略，默认 ""，最多 200 字符；示例："Python 测试开发转 Agent 应用"。
@@ -22,10 +22,16 @@ class ProfileData(Payload):
     summary: str = Field(default='', max_length=10000)
     # 技能名称；可省略，默认 []，最多 100 个字符串，未限制单项长度；示例：["Python", "接口测试"]。
     skills: list[str] = Field(default_factory=list, max_length=100)
-    # 工作/项目经历正文；可省略，默认 ""，最多 20000 字符；示例："维护接口自动化平台及 CI 流程。"。
+    # 工作经历正文；草稿可省略，默认 ""，最多 20000 字符；正式确认时必填。
     experience: str = Field(default='', max_length=20000)
     # 教育背景；可省略，默认 ""，最多 2000 字符；示例："本科，计算机相关专业"。
     education: str = Field(default='', max_length=2000)
+    # experience_years：累计工作年限；草稿默认 None，有限数值 0—80 年，正式确认必填；示例：4.5。
+    experience_years: float | None = Field(default=None, ge=0, le=80, allow_inf_nan=False)
+
+    # projects：独立的项目经历正文；草稿默认 ""，最多 20000 字符，正式确认必填。
+    #   示例："开发测试平台，负责接口执行器和结果分析。"。
+    projects: str = Field(default='', max_length=20000)
     # 画像提取依据；可省略，默认 []，最多 100 个字典；字典内部 key 尚未固定，须保持 JSON 可序列化。
     # 示例：[{"document_id": "resume_001", "locator": "第 2 页", "text": "负责接口自动化"}]。
     evidence: list[dict] = Field(default_factory=list, max_length=100)
@@ -52,8 +58,8 @@ class ProfileUpdate(Payload):
 class Preferences(Payload):
     # 求职城市；可省略，默认 ""，最多 100 字符；示例："杭州"。
     city: str = Field(default='', max_length=100)
-    # 求职方向；可省略，默认 "Python Agent 应用开发"，最多 200 字符；示例："Agent 应用开发"。
-    direction: str = Field(default='Python Agent 应用开发', max_length=200)
+    # 求职方向；草稿默认 ""，最多 200 字符；正式确认必须填写，不能由默认值代替用户提供。
+    direction: str = Field(default='', max_length=200)
     # 薪资按元/月保存，None 表示未知；不使用 0 代替未知薪资。
     # 期望月薪下限；可省略，默认 None；整数 1—10000000；示例：20000。
     salary_min: int | None = Field(default=None, gt=0, le=10000000)
@@ -62,10 +68,10 @@ class Preferences(Payload):
     salary_max: int | None = Field(default=None, gt=0, le=10000000)
     # 通勤出发地址，不是公司地址；可省略，默认 ""，最多 300 字符；示例："杭州市西湖区某小区"。
     commute_origin: str = Field(default='', max_length=300)
-    # 通勤是单程分钟数，commute_mode 指定用于评分的出行方式。
-    # 可接受的单程上限；可省略，默认 60；整数 1—1440；示例：45。
+    # 旧接口兼容字段：可接受的单程分钟数，默认60；当前工作台不将其纳入必填或计算通勤分。
+    # 整数 1—1440；示例：45；公交与驾车结果都独立展示。
     commute_limit_minutes: int = Field(default=60, gt=0, le=1440)
-    # 常用评分路线；可省略，默认 public_transit（公交），也允许 driving（驾车）；示例："driving"。
+    # 旧接口兼容的出行偏好；默认 public_transit，也允许 driving；当前不据此评分或排名。
     commute_mode: Literal['public_transit', 'driving'] = 'public_transit'
 
     @model_validator(mode='after')
@@ -83,12 +89,24 @@ class PreferencesUpdate(Payload):
     data: Preferences
 
 
+class CandidateUpdate(Payload):
+    """一并确认画像和求职条件，避免两次保存导致部分成功或修订冲突。"""
+    # revision：读取个人资料时的修订号；必填非负整数，例：3；服务会拒绝旧版本。
+    revision: int = Field(ge=0)
+
+    # profile：完整画像；必填，正式确认要求全部个人核心字段有效。
+    profile: ProfileData
+
+    # preferences：同一次确认的求职条件；必填，方向/城市/起点/期望薪资均不能缺失。
+    preferences: Preferences
+
+
 class JobData(Payload):
     """正式保存的岗位结构；薪资为元/月或 None，source_ids 引用已登记资料。"""
-    # 公司名称；必填，去首尾空白后长度 1—200 字符；示例："星河科技"。
-    company: str = Field(min_length=1, max_length=200)
-    # 岗位名称；必填，去首尾空白后长度 1—200 字符；示例："Agent 应用开发工程师"。
-    title: str = Field(min_length=1, max_length=200)
+    # 公司名称；最多 200 字符，未披露时留空并在 blind_spots.company 明确说明。
+    company: str = Field(default='', max_length=200)
+    # 岗位名称；最多 200 字符，未披露时留空并在 blind_spots.title 明确说明。
+    title: str = Field(default='', max_length=200)
     # 工作城市；可省略，默认 ""，最多 100 字符；示例："杭州"。
     city: str = Field(default='', max_length=100)
     # 具体办公地址，用于通勤查询；可省略，默认 ""，最多 300 字符；示例："杭州市滨江区某园区"。
@@ -107,6 +125,17 @@ class JobData(Payload):
     # 已登记的来源资料 ID；可省略，默认 []，最多 30 个字符串，未限制单个 ID 的长度。
     # 示例：["image_001"]；为空可表示手动录入，资料是否存在由保存服务另外检查。
     source_ids: list[str] = Field(default_factory=list, max_length=30)
+    # blind_spots：招聘方未披露的字段及原因；默认 {}，最多 6 项。
+    #   key 仅限 company/title/city/address/salary/jd_text，原因必须非空。
+    #   示例：{"address": "招聘方尚未披露具体办公地点"}；正式保存前由用户确认。
+    blind_spots: dict[str, str] = Field(default_factory=dict, max_length=6)
+
+    @model_validator(mode='after')
+    def valid_blind_spots(self):
+        allowed = {'company', 'title', 'city', 'address', 'salary', 'jd_text'}
+        if set(self.blind_spots) - allowed or any(not reason.strip() for reason in self.blind_spots.values()):
+            raise ValueError('信息盲区须使用支持的字段名，并填写招聘方未披露的具体说明')
+        return self
 
     @model_validator(mode='after')
     def salary_order(self):

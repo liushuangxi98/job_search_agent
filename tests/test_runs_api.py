@@ -3,12 +3,15 @@ import time
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
+from workbench_fixtures import candidate_payload, complete_job
 
 
 def ready_profile(client):
-    current = client.get('/api/profile').json()
-    client.put('/api/profile', json={'revision': current['revision'], 'confirmed': True,
-                                    'data': {'summary': 'Python 自动化测试开发'}})
+    current = client.get('/api/candidate')
+    assert current.status_code == 200, current.text
+    saved = client.put('/api/candidate', json=candidate_payload(current.json()['revision']))
+    assert saved.status_code == 200, saved.text
+    return saved.json()
 
 
 def wait_run(client, key):
@@ -30,7 +33,7 @@ def start(client, action, **values):
 
 def test_completed_report_survives_restart_without_runtime(client, settings):
     ready_profile(client)
-    job = client.post('/api/jobs', json={'company': '示例公司', 'title': 'Agent 开发', 'jd_text': '原始 JD'}).json()
+    job = client.post('/api/jobs', json=complete_job(company='示例公司', title='Agent 开发', jd_text='原始 JD')).json()
     run = start(client, 'evaluate', job_ids=[job['id']])
     assert run['status'] == 'completed'
     assert run['is_demo'] is True
@@ -49,6 +52,7 @@ def test_completed_report_survives_restart_without_runtime(client, settings):
 
 
 def test_confirmation_applies_once_and_locks_other_runs(client):
+    before = client.get('/api/preferences').json()
     run = start(client, 'chat', text='演示补充信息', demo_scenario='needs_input')
     assert run['status'] == 'needs_input'
     assert client.post('/api/runs', json={'action': 'chat', 'input': {'text': 'another'}}).status_code == 409
@@ -56,8 +60,11 @@ def test_confirmation_applies_once_and_locks_other_runs(client):
     accepted = client.post(f"/api/runs/{run['id']}/input", json=body)
     assert accepted.status_code == 202
     assert wait_run(client, run['id'])['status'] == 'completed'
-    assert client.get('/api/preferences').json()['data']['city'] == '杭州'
+    saved = client.get('/api/preferences').json()
+    assert saved['data']['city'] == '杭州'
+    assert saved['revision'] == before['revision'] + 1
     assert client.post(f"/api/runs/{run['id']}/input", json=body).status_code == 409
+    assert client.get('/api/preferences').json() == saved
 
 
 def test_reject_and_revision_conflict_do_not_overwrite_preferences(client):
@@ -77,10 +84,15 @@ def test_reject_and_revision_conflict_do_not_overwrite_preferences(client):
 def test_demo_failure_and_partial_states_are_visible(client):
     assert start(client, 'chat', text='演示', demo_scenario='fail')['status'] == 'failed'
     ready_profile(client)
-    job = client.post('/api/jobs', json={'company': '例子', 'title': '开发'}).json()
+    job = client.post('/api/jobs', json=complete_job(company='例子', title='开发')).json()
     run = start(client, 'evaluate', job_ids=[job['id']], demo_scenario='partial')
     assert run['status'] == 'partial'
-    assert run['result']['data']['jobs'][0]['total_score'] is None
+    result = run['result']['data']['jobs'][0]
+    assert result['match_score'] is not None
+    assert result['commutes']['public_transit']['duration_minutes'] is None
+    assert result['missing']
+    assert run['report_id']
+    assert client.get('/api/reports/' + run['report_id']).json()['data']['jobs'][0] == result
 
 
 def test_real_mode_never_falls_back_to_demo(settings, monkeypatch):
@@ -95,7 +107,7 @@ def test_real_mode_never_falls_back_to_demo(settings, monkeypatch):
 
 def test_interview_answers_stay_in_memory_until_report(client):
     ready_profile(client)
-    job = client.post('/api/jobs', json={'company': '示例', 'title': '开发'}).json()
+    job = client.post('/api/jobs', json=complete_job(company='示例', title='开发')).json()
     run = start(client, 'interview', job_id=job['id'])
     assert run['pending_input']['kind'] == 'question'
     assert client.get('/api/reports').json()['total'] == 0
@@ -136,7 +148,7 @@ def test_request_body_ceiling_rejects_without_retry(client):
 
 def test_finishing_clarification_does_not_continue_evaluation(client):
     ready_profile(client)
-    job = client.post('/api/jobs', json={'company': '结束场景', 'title': '开发'}).json()
+    job = client.post('/api/jobs', json=complete_job(company='结束场景', title='开发')).json()
     run = start(client, 'evaluate', job_ids=[job['id']], demo_scenario='needs_input')
     assert run['status'] == 'needs_input'
     response = client.post(f"/api/runs/{run['id']}/input", json={

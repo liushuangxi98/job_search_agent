@@ -1,6 +1,6 @@
 # 后端三层架构
 
-本次按已确认的 FastAPI、同步 SQLAlchemy 和 MySQL 技术栈重构。页面功能、API 路径、JSON 字段、数据库表和 Agent 接口保持兼容。三层按职责划分，使用普通类和函数，不增加通用基类、插件系统或额外依赖。
+后端使用 FastAPI、同步 SQLAlchemy 和 MySQL，按职责划分三层，采用普通类和函数。2026-11-04 的三入口工作台调整了资料确认及报告字段，当前接口以 `docs/agent-interface.md` 为准；数据库表结构及历史报告仍保留。不增加通用基类、插件系统或额外依赖。
 
 ## 调用关系
 
@@ -41,6 +41,8 @@ flowchart TD
 - Agent 运行仍只在内存中保存；关闭应用时先取消后台运行，再释放连接池。不会增加数据库迁移、检查点恢复或 Agent 算法。
 
 ## 从哪里读代码
+
+三入口工作台新增 `GET/PUT /api/candidate`，将画像与条件在一个事务里确认。`services/material_validation.py` 集中检查正式入库的个人必填项和岗位盲区；界面在确认入口先提示缺项，服务只保留对应的必要一致性检查。字段仍存入现有 JSON 列，旧报告快照不迁移或重写。
 
 先读 `api/jobs.py → services/job_service.py → repositories/job_repository.py → models.py`，这是最完整的普通业务链路。再读资料上传和 `services/run_service.py`，理解文件清理、人工确认及报告保存。
 

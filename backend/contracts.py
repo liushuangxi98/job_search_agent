@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from .schemas import Payload, JobData, ProfileData, QuestionData
+from .schemas import Payload, JobData, Preferences, ProfileData, QuestionData
 
 # 阅读导航
 #   1. Action / RunStart / RunInput：用户请求什么，怎样补充输入。
@@ -36,7 +36,7 @@ from .schemas import Payload, JobData, ProfileData, QuestionData
 # parse_resume：简历解析
 #   场景：用户上传简历。
 #   输入：input.document_id 引用 resume 资料。
-#   返回：profile_draft，提取经历、技能和依据；用户确认后才保存画像。
+#   返回：profile_draft，提取画像和求职条件，列出诊断说明；用户完整确认后统一保存。
 #
 # extract_jobs：招聘信息提取
 #   场景：用户上传招聘截图，或粘贴招聘原文。
@@ -50,7 +50,7 @@ from .schemas import Payload, JobData, ProfileData, QuestionData
 #   业务约定：Agent 自行保存元数据和索引，不能仅靠返回值完成入库。
 #
 # evaluate：岗位评估
-#   场景：用户比较已选岗位；发起前须确认画像。
+#   场景：用户在岗位行评估匹配度与通勤；发起前须确认完整个人资料和岗位信息盲区。
 #   输入：input.job_ids 为 1—10 个岗位 ID。
 #   返回：evaluation_report；信息不足但已有可用结果时可返回 partial。
 #
@@ -174,69 +174,60 @@ class AgentResponse(Payload):
 
 
 # 3.1 ReportJob：评估报告中的单个岗位
-class ReportJob(BaseModel):
-    """岗位报告的展示结构；分数为百分制或 None，应用只校验范围而不计算权重。"""
-    # 允许附加字段；这些展示模型不统一裁剪字符串空白，不要依赖它替 Agent 清理内容。
-    model_config = {'extra': 'allow'}
+class RequirementMatch(Payload):
+    """把岗位要求对应到个人经历证据；unknown 表示材料不足，不能当作能力不足。"""
+    # requirement：岗位的一项要求；必填非空字符串；示例："具备 Python 开发经验"。
+    requirement: str = Field(min_length=1)
 
-    # job_id：被评估岗位 ID；必填字符串，无长度限制。
-    #   示例："job_001"，业务上应对应输入快照中的岗位。
+    # evidence：该要求对应的经历依据；默认 ""，无长度上限；示例："维护 Python 接口平台"。
+    evidence: str = ''
+
+    # assessment：matched 符合、partial 部分符合、gap 明确差距、unknown 资料不足。
+    #   默认 unknown；示例："partial"，不要把缺少证据直接断言为没有能力。
+    assessment: Literal['matched', 'partial', 'gap', 'unknown'] = 'unknown'
+
+
+class ReportJob(BaseModel):
+    """独立岗位分析：匹配分、依据和通勤，不计算薪资分、通勤分、总分或排名。"""
+    # 新结果只保留当前契约字段；历史已保存报告仍按原始快照读取。
+    model_config = {'extra': 'ignore'}
+
+    # job_id：必填字符串，对应输入快照中的岗位 ID；示例："job_001"。
     job_id: str
 
-    # company：公司名称；必填字符串，未限制长度或禁止空串。
-    #   示例："星河科技"。
+    # company：必填字符串，无长度约束；未知时为空串并在 missing 说明；示例："星河科技"。
     company: str
 
-    # title：岗位名称；必填字符串，未限制长度或禁止空串。
-    #   示例："Agent 应用开发工程师"。
+    # title：必填字符串，无长度约束；未知时为空串并在 missing 说明；示例："Agent 开发"。
     title: str
 
-    # match_score：匹配度分数；可省略，默认 None；有限数值 0—100，None 表示未知。
-    #   示例：82。
+    # match_score：独立百分制匹配分；默认 None，有限数值 0—100；示例：82。
+    #   由 Agent 提供，缺乏依据时保留 None，不代表录用概率，不与其他维度合成总分。
     match_score: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
 
-    # salary_score：薪资符合度分数，不是薪资金额；可省略，默认 None；有限数值 0—100。
-    #   示例：90。
-    salary_score: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    # matches：要求与经历的对应分析；默认 []，每项为 RequirementMatch。
+    #   示例：[{"requirement": "Python", "evidence": "接口平台项目", "assessment": "matched"}]。
+    matches: list[RequirementMatch] = Field(default_factory=list)
 
-    # commute_score：通勤便利度分数，不是分钟数；可省略，默认 None；有限数值 0—100。
-    #   示例：70。
-    commute_score: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
+    # strengths：匹配优势；默认 []，不限条数的字符串列表；示例：["Python 工程经验"]。
+    strengths: list[str] = Field(default_factory=list)
 
-    # total_score：总分；可省略，默认 None；有限数值 0—100，任一分项为 None 时总分也必须为 None。
-    #   业务约定由 Agent 按 60% 匹配 + 25% 薪资 + 15% 通勤计算；模型不验证公式。
-    #   示例：82.2。
-    total_score: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
-
-    # gaps：能力或经历差距；可省略，默认 []，字符串列表且不限条数。
-    #   示例：["缺少 RAG 项目证据"]。
+    # gaps：已识别的差距；默认 []，不限条数的字符串列表；示例：["缺少部署实践"]。
     gaps: list[str] = Field(default_factory=list)
 
-    # recommendation：投递建议及解释；可省略，默认 ""，无长度限制。
-    #   示例："建议投递，补充工具异常处理案例。"。
-    recommendation: str = ''
-
-    # missing：尚缺的资料或证据；可省略，默认 []，字符串列表且不限条数。
-    #   示例：["办公地址待确认"]。
+    # missing：影响结论的信息盲区；默认 []，字符串列表；示例：["办公地点尚未披露"]。
     missing: list[str] = Field(default_factory=list)
 
-    # evidence：结论依据；可省略，默认 []，未固定元素结构或数量；业务上应返回可追溯的 JSON 数据。
-    #   示例：[{"source": "JD", "text": "要求熟悉 RAG"}]；不要把示例内部 key 当成强制 schema。
+    # recommendation：针对本岗位的建议；默认 ""，无长度上限；示例："先确认地点再决定是否投递"。
+    recommendation: str = ''
+
+    # evidence：附加引用依据；默认 []，元素结构不固定，须可 JSON 序列化。
+    #   示例：[{"source": "JD", "text": "要求 Python 开发经验"}]。
     evidence: list = Field(default_factory=list)
 
-    # commutes：不同出行方式的单程路线；可省略，默认 {}。
-    #   字典 key：业务上使用 public_transit（公交）或 driving（驾车），模型未限定枚举。
-    #   字典值：按 CommuteResult 校验；缺少路线时可省略该项。
-    #   示例：{"driving": {"duration_minutes": 35, "distance_km": 12.5}}。
+    # commutes：默认 {}，public_transit / driving 分别对应公交、驾车，值按 CommuteResult 校验。
+    #   示例：{"driving": {"duration_minutes": 35, "distance_km": 12, "route_summary": "经城市道路到园区"}}。
     commutes: dict[str, 'CommuteResult'] = Field(default_factory=dict)
-
-    # Pydantic 在字段校验后自动执行此方法，ValueError 会汇总为模型校验异常。
-    @model_validator(mode='after')
-    def no_total_for_missing_dimensions(self):
-        """分项未知时禁止填写总分；返回校验后的自身，违规时抛 ValueError。"""
-        if self.total_score is not None and any(x is None for x in (self.match_score, self.salary_score, self.commute_score)):
-            raise ValueError('分项缺失时总分必须为空')
-        return self
 
 
 # 3.2 CommuteResult：单程路线的时长与距离
@@ -251,6 +242,9 @@ class CommuteResult(BaseModel):
     # distance_km：单程距离，单位公里；可省略，默认 None；非负有限数值。
     #   示例：18.2。
     distance_km: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    # route_summary：主要线路或路径；默认 ""，无长度上限；未知时空串，不编造路线。
+    #   示例："步行到地铁站 → 地铁 1 号线 → 步行到公司"。
+    route_summary: str = ''
 
 
 # 3.3 DisplayData：7 种结果共用的展示字段
@@ -270,6 +264,13 @@ class ProfileDraftData(DisplayData):
     #   示例：{"summary": "四年 Python 测试开发", "skills": ["Python"]}；返回草稿不会自动覆盖画像。
     profile: ProfileData
 
+    # preferences：同一份简历中的求职条件；必填，允许草稿缺项，正式确认前必须补齐。
+    preferences: Preferences
+
+    # diagnosis：提取依据、疑点或补充提示；默认 []，不限条数的字符串列表。
+    #   示例：["缺少项目经历，请补充"]；模型判断由用户的 Agent 提供。
+    diagnosis: list[str] = Field(default_factory=list)
+
 
 # 3.5 JobDraft / JobDraftsData：单个岗位草稿与草稿列表
 class JobDraft(JobData):
@@ -284,6 +285,7 @@ class JobDraft(JobData):
     #   jd_text：默认 ""，最多 50000 字符；例："负责 Agent 工具调用开发"。
     #   notes：默认 ""，最多 5000 字符；例："需核实具体工作地点"。
     #   source_ids：默认 []，最多 30 个字符串 ID；例：["image_001"]，保存时检查来源存在。
+    #   blind_spots：默认 {}，招聘方未披露的字段及原因；用户逐项核对后才正式保存。
     #   以上继承字段均可省略；本类仅放宽下面的 company、title。
 
     # company：草稿公司名；可省略，默认 None，也允许 ""；非 None 时最多 200 字符。
@@ -301,6 +303,9 @@ class JobDraftsData(DisplayData):
     # jobs：待预览的岗位草稿；必填列表，每项是 JobDraft，模型允许 []，未限制列表长度。
     #   示例：[{"company": null, "title": "Agent 开发", "source_ids": ["image_001"]}]（JSON）。
     jobs: list[JobDraft]
+    # diagnosis：材料诊断和补充说明；默认 []，字符串列表；示例：["工作地点尚未披露"]。
+    #   结果仍是草稿，不代表岗位已进入正式岗位池。
+    diagnosis: list[str] = Field(default_factory=list)
 
 
 # 3.6 KnowledgeResultData：题库导入与索引摘要
@@ -316,15 +321,15 @@ class KnowledgeResultData(DisplayData):
     coverage: list[str] = Field(default_factory=list)
 
 
-# 3.7 EvaluationReportData：岗位比较报告
+# 3.7 EvaluationReportData：岗位评估报告
 class EvaluationReportData(DisplayData):
 
-    # title：报告标题；可省略，默认 "岗位比较报告"，无长度限制。
-    #   示例："杭州岗位比较"。
-    title: str = '岗位比较报告'
+    # title：报告标题；可省略，默认 "岗位评估报告"，无长度限制。
+    #   示例："Agent 开发岗位分析"。
+    title: str = '岗位评估报告'
 
-    # summary：比较结论摘要；可省略，默认 ""，无长度限制。
-    #   示例："A 岗位更匹配，B 岗位缺通勤信息。"。
+    # summary：匹配及通勤摘要；可省略，默认 ""，无长度限制，不给出跨岗位排名。
+    #   示例："经历与岗位部分匹配，具体办公地址尚未披露。"。
     summary: str = ''
 
     # jobs：每岗评估结果；必填列表，每项为 ReportJob，允许 []，不强制核对与输入岗位的对应关系。
@@ -492,9 +497,9 @@ class PendingInput(Payload):
 #   下面的最小示例只保证结构合法，不代表业务任务已充分完成。
 #
 # profile_draft：简历解析后的画像草稿
-#   必填：profile，对应 ProfileData；嵌套字段均有默认值。
-#   保存：不会自动覆盖画像，空画像不能被用户确认。
-#   示例：{"profile": {}}。
+#   必填：profile、preferences，分别对应 ProfileData、Preferences。
+#   保存：解析/诊断后仍是草稿，个人必填项完整才能统一确认，不能标成信息盲区。
+#   示例：{"profile": {}, "preferences": {}, "diagnosis": ["请补充项目经历和通勤起点"]}。
 #
 # job_drafts：待导入的岗位草稿
 #   必填：jobs，元素对应 JobDraft；等待用户预览保存。
