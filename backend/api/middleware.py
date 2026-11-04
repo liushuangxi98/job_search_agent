@@ -1,5 +1,13 @@
-"""在表单解析前限制 POST、PUT、PATCH 的请求体不超过 48 MiB。"""
+"""限制请求体大小，并让工作台页面与静态资源在使用前重新校验。"""
 from fastapi.responses import JSONResponse
+
+
+async def revalidate_static_assets(request, call_next):
+    """允许浏览器缓存资源，但每次使用前须校验，避免升级后混用不同版本的页面和脚本。"""
+    response = await call_next(request)
+    if request.url.path == '/' or request.url.path.startswith('/static/'):
+        response.headers['Cache-Control'] = 'no-cache'
+    return response
 
 
 class BodyLimitMiddleware:

@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from .agent_gateway import load_handler
 from .api import router
 from .api.exception_handlers import register_exception_handlers
-from .api.middleware import BodyLimitMiddleware
+from .api.middleware import BodyLimitMiddleware, revalidate_static_assets
 from .config import ROOT, Settings
 from .database import Database
 from .services.agent_data_service import AgentDataService
@@ -65,6 +65,7 @@ def create_app(settings: Settings | None = None, handler=None) -> FastAPI:
     app.state.system_service = SystemService(database, settings, handler)
 
     app.add_middleware(BodyLimitMiddleware)
+    app.middleware('http')(revalidate_static_assets)
     register_exception_handlers(app)
     app.include_router(router)
 
