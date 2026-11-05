@@ -451,21 +451,21 @@ class ChangeProposal(Payload):
 
     # target：要修改的对象；必填，限 profile（包含求职条件的画像）、job（岗位）。
     #   示例："profile"。
-    target: Literal['profile', 'job']
+    target: Literal['profile', 'job'] = Field(description='修改个人画像或求职条件选 profile，修改当前岗位选 job。')
 
     # target_id：对象 ID；可省略、默认 None，但 target="job" 时必须为非空字符串。
     #   示例："job_001"。
     #   画像、条件是单用户当前记录，不需要此 ID；该字段未设置长度上限。
-    target_id: str | None = None
+    target_id: str | None = Field(default=None, description='job 必填快照中当前岗位的 id；profile 省略或填 null。')
 
     # revision：读取目标记录时的修订号；必填非负整数。
     #   示例：3。应用保存时还会检查是否已过期。
-    revision: int = Field(ge=0)
+    revision: int = Field(ge=0, description='复制快照中目标记录当前的 revision，不能自行递增。')
 
     # changes：局部修改字段，不是完整资料；必填非空字典，至少 1 项。
     #   示例：{"city": "杭州"}。
     #   应用按 target 检查允许字段与合并后的值，岗位提案不能改 source_ids；这里只检查字典非空。
-    changes: dict = Field(min_length=1)
+    changes: dict = Field(min_length=1, description='只填写要修改的业务字段及其新值，至少一项；岗位不能修改 source_ids。')
 
     @model_validator(mode='after')
     def job_id_required(self):

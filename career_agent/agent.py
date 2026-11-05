@@ -1,19 +1,13 @@
-"""
-模块名称:  agent.py
-所属项目:  job_search_agent
-创建时间:  2026/11/2 16:45
-作者:      刘双喜 <1604030114@qq.com>
-功能描述:
-"""
-from backend.contracts import AgentResponse
-from career_agent.chat import chat
+"""Agent 唯一入口：分发已实现动作，统一返回后端契约。"""
+from backend.contracts import AgentCommand, AgentResponse, ApplicationServices
+from .chat import reply
 
 
-async def handle(command, services, emit):
-    if command.action == "chat":
-        reply = await chat(command.input['text'])
-        ret = AgentResponse(status='completed', kind='chat', data={'message': reply.content}, pending_input={},
-                            state={'last_message': command.input})
-        return ret
-    else:
-        return AgentResponse(status='failed', kind='chat', data={'message': f'{command.action}暂未实现'})
+async def handle(command: AgentCommand, services: ApplicationServices, emit) -> AgentResponse:
+    """接收一次运行或人工续接；尚未实现的动作明确失败。"""
+    if command.action == 'chat':
+        return await reply(command, emit)
+    return AgentResponse(
+        status='failed', kind='chat',
+        data={'message': f'动作 {command.action} 尚未实现。'},
+    )
