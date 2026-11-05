@@ -3,7 +3,7 @@
 
 def complete_profile(**changes):
     return {
-        'name': '测试求职者', 'education': '本科，计算机科学与技术',
+        'name': '测试求职者', 'education': '本科', 'major': '计算机科学与技术',
         'experience_years': 4, 'skills': ['Python', '自动化测试'],
         'experience': '维护接口自动化平台及持续集成流程。',
         'projects': '开发 RAG 题库检索项目，负责召回评测和接口测试。',

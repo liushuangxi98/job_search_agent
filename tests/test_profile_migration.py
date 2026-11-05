@@ -15,6 +15,8 @@ def legacy_record(database, *, invalid=False):
     profile = complete_profile(name='迁移求职者 🧑‍💻')
     keys = ('direction', 'city', 'salary_min', 'salary_max', 'commute_origin')
     preferences = {key: profile.pop(key) for key in keys}
+    profile['headline'] = '旧版求职标题'
+    preferences['commute_limit_minutes'] = 45
     if invalid:
         preferences['salary_max'] = 1
     with database.engine.begin() as connection:
@@ -41,7 +43,7 @@ def test_legacy_profile_merges_once_and_preserves_reports(settings):
         assert 'preferences' not in {column['name'] for column in inspect(database.engine).get_columns('candidate')}
         with database.session_factory.begin() as session:
             row = session.get(Candidate, 1)
-            assert row.profile == {**profile, **preferences}
+            assert row.profile == complete_profile(name='迁移求职者 🧑‍💻')
             assert row.revision == 7
             assert row.confirmed is True
             assert session.get(Report, report_id).snapshot == snapshot
@@ -72,7 +74,7 @@ def test_retry_after_merge_preserves_new_profile_values(settings):
     try:
         profile, preferences = legacy_record(database)
         # 模拟合并已提交、删旧列前进程退出；重新迁移以完整 profile 为准。
-        merged = {**profile, **preferences, 'city': '上海'}
+        merged = {**complete_profile(name=profile['name']), 'city': '上海'}
         with database.engine.begin() as connection:
             connection.execute(text('UPDATE candidate SET profile=:value WHERE id=1'),
                                {'value': json.dumps(merged, ensure_ascii=False)})
@@ -81,3 +83,41 @@ def test_retry_after_merge_preserves_new_profile_values(settings):
             assert session.get(Candidate, 1).profile == merged
     finally:
         database.close()
+
+
+def test_retired_profile_fields_are_readable_before_migration(client, settings):
+    from workbench_fixtures import candidate_payload
+
+    old = complete_profile(name='旧画像', education='本科，计算机相关')
+    old.pop('major')
+    evidence = [{'locator': '第 1 页', 'text': '参与自动化测试开发'}]
+    old.update(headline='旧职位标题', commute_limit_minutes=45, evidence=evidence)
+    with client.app.state.database.session_factory.begin() as session:
+        row = session.get(Candidate, 1)
+        row.profile = old
+        row.revision = 3
+        row.confirmed = True
+
+    result = client.get('/api/candidate').json()
+    assert not result['confirmed']
+    assert result['missing'] == [{'field': 'profile.major', 'label': '大学专业'}]
+    assert result['profile']['major'] == ''
+    assert result['profile']['education'] == old['education']
+    assert result['profile']['evidence'] == evidence
+    assert 'headline' not in result['profile'] and 'commute_limit_minutes' not in result['profile']
+
+    initialize_database(settings)
+    with client.app.state.database.session_factory() as session:
+        row = session.get(Candidate, 1)
+        assert row.profile == {k: v for k, v in old.items() if k not in ('headline', 'commute_limit_minutes')}
+        assert row.revision == 3
+
+    for key in ('headline', 'commute_limit_minutes'):
+        invalid = candidate_payload(3)
+        invalid['profile'][key] = old[key]
+        assert client.put('/api/candidate', json=invalid).status_code == 422
+    saved = client.put('/api/candidate', json={
+        'revision': 3, 'profile': {**result['profile'], 'major': '软件工程'},
+    }).json()
+    assert saved['confirmed'] and saved['profile']['major'] == '软件工程'
+    assert saved['profile']['evidence'] == evidence

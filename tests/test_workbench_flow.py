@@ -19,6 +19,7 @@ from workbench_fixtures import candidate_payload, complete_job, complete_profile
 CANDIDATE_MISSING = [
     ('profile', 'name', ''),
     ('profile', 'education', ''),
+    ('profile', 'major', ''),
     ('profile', 'experience_years', None),
     ('profile', 'skills', []),
     ('profile', 'experience', ''),

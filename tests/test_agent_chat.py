@@ -419,6 +419,7 @@ def test_backend_confirms_once_and_rejects_without_saving(settings, model_stub):
 @pytest.mark.parametrize('changes,stale,expected_status', [
     ({'city': '上海'}, True, 409),
     ({'unknown_field': '不应保存'}, False, 422),
+    ({'evidence': [{'text': '人工改写提取依据'}]}, False, 422),
     ({'salary_min': -1}, False, 422),
 ])
 def test_backend_rejects_invalid_proposals_before_writing(settings, model_stub, changes, stale, expected_status):

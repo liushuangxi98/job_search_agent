@@ -1,7 +1,7 @@
 """检查确认入库所需的基础资料，不代替 Agent 的解析、材料诊断或业务推理。"""
 
 CANDIDATE_FIELDS = {
-    'name': '姓名', 'education': '学历',
+    'name': '姓名', 'education': '学历', 'major': '大学专业',
     'experience_years': '工作年限', 'skills': '技能',
     'experience': '工作经历', 'projects': '项目经历',
     'direction': '求职方向', 'city': '目标城市', 'commute_origin': '通勤起点',

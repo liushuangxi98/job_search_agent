@@ -4,13 +4,13 @@ from copy import deepcopy
 from .contracts import AgentResponse
 from .exceptions import AppError
 
-PROFILE = {'name': '示例求职者', 'headline': 'Python 自动化测试开发 · 转向 Agent 应用',
+PROFILE = {'name': '示例求职者',
            'summary': '四年 Python 自动化测试开发经验，正在学习 Agent 应用开发。',
            'skills': ['Python', '自动化测试', '接口测试'], 'experience': '构建接口自动化测试及持续集成流程。',
-           'education': '本科 · 计算机相关专业（示例）', 'experience_years': 4,
+           'education': '本科', 'major': '计算机科学与技术（示例）', 'experience_years': 4,
            'projects': '开发接口自动化测试平台，支持用例执行和测试报告汇总（固定示例）。', 'evidence': [],
            'city': '杭州', 'direction': 'Python Agent 应用开发', 'salary_min': 20000,
-           'salary_max': 30000, 'commute_origin': '杭州西湖区', 'commute_limit_minutes': 60,
+           'salary_max': 30000, 'commute_origin': '杭州西湖区',
            'commute_mode': 'public_transit'}
 JOBS = [
     {'company': '星河科技（虚构）', 'title': 'Agent 应用开发工程师', 'city': '杭州',
@@ -58,7 +58,7 @@ async def handle(command, services, emit):
         return AgentResponse(status='needs_input', kind='chat', data={'message': pending['prompt'], 'notice': NOTICE}, pending_input=pending)
     if command.action == 'parse_resume':
         profile = deepcopy(PROFILE)
-        diagnosis = ['固定样例：请核对姓名、学历、工作年限、经历与求职条件，再统一确认。']
+        diagnosis = ['固定样例：请核对学历、大学专业、工作经历和求职条件，再统一确认。']
         if scenario == 'partial':
             profile['projects'] = ''
             diagnosis.append('固定缺项示例：请补充项目经历，个人核心资料不能标为信息盲区。')

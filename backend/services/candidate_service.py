@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..exceptions import AppError
 from ..repositories.candidate_repository import CandidateRepository
-from ..schemas import ProfileData, ProfileUpdate
+from ..schemas import ProfileData, ProfileUpdate, current_profile_fields
 from .material_validation import candidate_missing
 
 
@@ -19,7 +19,7 @@ class CandidateService:
         return {
             'revision': row.revision,
             'confirmed': row.confirmed,
-            'data': ProfileData.model_validate(row.profile).model_dump(),
+            'data': ProfileData.model_validate(current_profile_fields(row.profile)).model_dump(),
         }
 
     def get(self):
@@ -32,7 +32,7 @@ class CandidateService:
 
     @staticmethod
     def workbench_data(row):
-        profile = ProfileData.model_validate(row.profile).model_dump()
+        profile = ProfileData.model_validate(current_profile_fields(row.profile)).model_dump()
         missing = candidate_missing(profile)
         return {
             'revision': row.revision, 'confirmed': row.confirmed and not missing,

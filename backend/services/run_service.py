@@ -222,7 +222,7 @@ class RunService:
         revision = proposal.get('revision')
         if target == 'profile':
             current = self.repository.candidate()
-            if set(changes) - set(ProfileData.model_fields):
+            if set(changes) - (set(ProfileData.model_fields) - {'evidence'}):
                 raise AppError(422, 'INVALID_PROPOSAL', '提案包含不可修改字段')
             data = ProfileData.model_validate({**current['data'], **changes}).model_dump()
             return self.repository.update_candidate(data, revision)

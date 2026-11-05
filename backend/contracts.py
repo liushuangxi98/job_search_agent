@@ -268,7 +268,7 @@ class DisplayData(BaseModel):
 
     # notice：下方 7 种 data 均继承此提示字段；可省略，默认 ""，无长度限制。
     #   示例："部分信息缺失，请核对后再保存。"；不是 status，也不负责触发确认流程。
-    notice: str = ''
+    notice: str = Field(default='', description='给用户的结果提示，例如资料缺失或固定样例说明。')
 
 
 # 3.4 ProfileDraftData：简历解析后的画像草稿
@@ -276,11 +276,11 @@ class ProfileDraftData(DisplayData):
 
     # profile：简历解析出的画像草稿；必填，结构为 schemas.ProfileData；继承可选 notice。
     #   示例：{"summary": "四年 Python 测试开发", "skills": ["Python"]}；返回草稿不会自动覆盖画像。
-    profile: ProfileData
+    profile: ProfileData = Field(description='从简历及人工补充中提取的画像草稿，包含学历、大学专业和求职条件。')
 
     # diagnosis：提取依据、疑点或补充提示；默认 []，不限条数的字符串列表。
     #   示例：["缺少项目经历，请补充"]；模型判断由用户的 Agent 提供。
-    diagnosis: list[str] = Field(default_factory=list)
+    diagnosis: list[str] = Field(default_factory=list, description='需用户核对的缺项、疑点或依据说明。')
 
 
 # 3.5 JobDraft / JobDraftsData：单个岗位草稿与草稿列表
@@ -465,7 +465,7 @@ class ChangeProposal(Payload):
     # changes：局部修改字段，不是完整资料；必填非空字典，至少 1 项。
     #   示例：{"city": "杭州"}。
     #   应用按 target 检查允许字段与合并后的值，岗位提案不能改 source_ids；这里只检查字典非空。
-    changes: dict = Field(min_length=1, description='只填写要修改的业务字段及其新值，至少一项；岗位不能修改 source_ids。')
+    changes: dict = Field(min_length=1, description='只填写要修改的业务字段及新值；画像提取依据 evidence 和岗位来源 source_ids 均为只读。')
 
     @model_validator(mode='after')
     def job_id_required(self):

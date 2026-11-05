@@ -1,10 +1,10 @@
 """连接池和 Session 工厂；具体业务事务由 services 层管理。"""
-from sqlalchemy import MetaData, Table, create_engine, inspect, select, text
+from sqlalchemy import MetaData, Table, create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 
 from .config import Settings
 from .models import Base, Candidate
-from .schemas import ProfileData
+from .schemas import ProfileData, current_profile_fields
 
 
 def make_engine(settings: Settings, *, administrative=False):
@@ -43,22 +43,22 @@ class Database:
 
 
 def merge_candidate_profile(engine):
-    """升级旧库：先事务合并画像与条件，再删除旧列；重复执行可安全跳过。
+    """升级当前画像：合并旧条件、清理退役字段，历史报告仍保留原快照。
 
     MySQL 的 ALTER TABLE 会隐式提交，因此先单独提交合并后的数据。
     若删除列失败，重跑时以 profile 已有值为准，避免旧条件覆盖后来修改的值。
     """
-    if 'preferences' not in {column['name'] for column in inspect(engine).get_columns('candidate')}:
-        return
     table = Table('candidate', MetaData(), autoload_with=engine)
     with engine.begin() as connection:
         rows = connection.execute(select(table).with_for_update()).mappings().all()
         for row in rows:
-            profile = {**(row['preferences'] or {}), **(row['profile'] or {})}
+            profile = current_profile_fields({**(row.get('preferences') or {}), **(row['profile'] or {})})
             ProfileData.model_validate(profile)
-            connection.execute(table.update().where(table.c.id == row['id']).values(profile=profile))
-    with engine.begin() as connection:
-        connection.execute(text('ALTER TABLE candidate DROP COLUMN preferences'))
+            if profile != row['profile']:
+                connection.execute(table.update().where(table.c.id == row['id']).values(profile=profile))
+    if 'preferences' in table.c:
+        with engine.begin() as connection:
+            connection.execute(text('ALTER TABLE candidate DROP COLUMN preferences'))
 
 
 def initialize_database(settings: Settings, *, create_database=False):
