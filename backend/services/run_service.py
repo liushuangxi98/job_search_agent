@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from ..config import Settings
 from ..contracts import (
     AgentCommand, AgentResponse, ApplicationServices, ChatSummary, PendingInput,
-    RunInput, RunStart, TokenUsage, validate_result,
+    RunInput, RunStart, validate_result,
 )
 from ..exceptions import AppError
 from ..schemas import JobData, ProfileData
@@ -24,6 +24,7 @@ class ChatSession:
     """同一标签页共享的原文和 Agent 写回的摘要，应用重启后清空。"""
     messages: list[dict[str, str]] = field(default_factory=list)
     summary: ChatSummary | None = None
+    last_usage: dict | None = None
 
     def append_turn(self, user: str, assistant: str):
         self.messages.extend([
@@ -51,7 +52,8 @@ class Run:
     state: dict = field(default_factory=dict)
     report_id: str | None = None
     task: object = None
-    usage: TokenUsage | None = None
+    usage: dict | None = None
+    previous_usage: dict | None = None
 
 
 class RunService:
@@ -125,7 +127,7 @@ class RunService:
             'events': [event for event in events if event['seq'] > after],
             'next_seq': events[-1]['seq'] if events else 0,
             'result': run.result, 'pending_input': run.pending_input, 'report_id': run.report_id,
-            'usage': run.usage.model_dump() if run.usage else None,
+            'usage': run.usage, 'previous_usage': run.previous_usage,
         })
 
     def current(self):
@@ -291,6 +293,8 @@ class RunService:
             command = AgentCommand(run.id, run.action, deepcopy(run.input), deepcopy(run.context),
                                    deepcopy(run.snapshot), deepcopy(run.state), human)
             session = self.chat_session(run) if run.action == 'chat' else None
+            previous_usage = session.last_usage if session else run.usage
+            command.previous_usage = deepcopy(previous_usage)
             if session:
                 command.history = [message.copy() for message in session.messages]
                 command.summary = deepcopy(session.summary)
@@ -303,12 +307,12 @@ class RunService:
             # await 等待入口交回结果；当前方法中的同步 SQL 和文件操作仍占用事件循环。
             value = await self.handler(command, self.services, emit)
             response = value if isinstance(value, AgentResponse) else AgentResponse.model_validate(value)
-            if response.usage:
-                previous = run.usage
-                run.usage = TokenUsage(**{
-                    name: count + (getattr(previous, name) if previous else 0)
-                    for name, count in response.usage.model_dump().items()
-                })
+            # 显式返回 None 表示模型未上报用量；无模型调用的步骤会省略 usage。
+            if 'usage' in response.model_fields_set:
+                run.previous_usage = previous_usage
+                run.usage = deepcopy(response.usage)
+                if session:
+                    session.last_usage = run.usage
             response.data = validate_result(response.kind, response.data)
             # 在契约边界校验可序列化性，错误结果不能进入报告表。
             json.dumps(response.model_dump(), ensure_ascii=False, allow_nan=False)

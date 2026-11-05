@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from .schemas import Payload, JobData, Preferences, ProfileData, QuestionData
+from .schemas import Payload, JobData, ProfileData, QuestionData
 
 # 阅读导航
 #   1. Action / RunStart / RunInput：用户请求什么，怎样补充输入。
@@ -120,13 +120,6 @@ class RunInput(Payload):
 # ---------------------------------------------------------------------------
 
 
-class TokenUsage(Payload):
-    """模型服务实际报告的 token 数，用于统计；未提供用量时整个 usage 为 None。"""
-    input_tokens: int = Field(ge=0)
-    output_tokens: int = Field(ge=0)
-    total_tokens: int = Field(ge=0)
-
-
 class ChatSummary(Payload):
     """text 是 Agent 生成的摘要，covered_messages 是它覆盖的原始消息条数。"""
     text: str = Field(min_length=1)
@@ -181,8 +174,9 @@ class AgentResponse(Payload):
     #   应用仅在内存中保存并通过 command.state 交回；本字段不是数据库持久化或完整聊天记忆。
     state: dict = Field(default_factory=dict)
 
-    # 本次 Agent 调用的模型用量；应用在运行内累计，固定回执不产生用量。
-    usage: TokenUsage | None = None
+    # 本次模型响应的 usage_metadata：输入、输出、总 token 数及可选明细。
+    # 已调用但未上报则传 None；本轮没有模型调用则省略此字段。
+    usage: dict | None = None
 
     # 成功后用此摘要更新会话；None 表示沿用已有摘要，原文始终保留。
     summary: ChatSummary | None = None
@@ -283,9 +277,6 @@ class ProfileDraftData(DisplayData):
     # profile：简历解析出的画像草稿；必填，结构为 schemas.ProfileData；继承可选 notice。
     #   示例：{"summary": "四年 Python 测试开发", "skills": ["Python"]}；返回草稿不会自动覆盖画像。
     profile: ProfileData
-
-    # preferences：同一份简历中的求职条件；必填，允许草稿缺项，正式确认前必须补齐。
-    preferences: Preferences
 
     # diagnosis：提取依据、疑点或补充提示；默认 []，不限条数的字符串列表。
     #   示例：["缺少项目经历，请补充"]；模型判断由用户的 Agent 提供。
@@ -458,9 +449,9 @@ class ChatData(DisplayData):
 class ChangeProposal(Payload):
     """待用户确认的局部修改；revision 是读取时的修订号，不是预期更新后的值。"""
 
-    # target：要修改的对象；必填，限 profile（画像）、preferences（条件）、job（岗位）。
-    #   示例："preferences"。
-    target: Literal['profile', 'preferences', 'job']
+    # target：要修改的对象；必填，限 profile（包含求职条件的画像）、job（岗位）。
+    #   示例："profile"。
+    target: Literal['profile', 'job']
 
     # target_id：对象 ID；可省略、默认 None，但 target="job" 时必须为非空字符串。
     #   示例："job_001"。
@@ -496,7 +487,7 @@ class PendingInput(Payload):
     prompt: str = Field(min_length=1)
 
     # proposal：修改内容；可省略、默认 None，但 kind="proposal" 时必须给出 ChangeProposal。
-    #   示例：{"target": "preferences", "revision": 3, "changes": {"city": "杭州"}}。
+    #   示例：{"target": "profile", "revision": 3, "changes": {"city": "杭州"}}。
     proposal: ChangeProposal | None = None
 
     @model_validator(mode='after')
@@ -517,9 +508,9 @@ class PendingInput(Payload):
 #   下面的最小示例只保证结构合法，不代表业务任务已充分完成。
 #
 # profile_draft：简历解析后的画像草稿
-#   必填：profile、preferences，分别对应 ProfileData、Preferences。
+#   必填：profile，对应 ProfileData，包含个人经历和求职条件。
 #   保存：解析/诊断后仍是草稿，个人必填项完整才能统一确认，不能标成信息盲区。
-#   示例：{"profile": {}, "preferences": {}, "diagnosis": ["请补充项目经历和通勤起点"]}。
+#   示例：{"profile": {}, "diagnosis": ["请补充项目经历和通勤起点"]}。
 #
 # job_drafts：待导入的岗位草稿
 #   必填：jobs，元素对应 JobDraft；等待用户预览保存。
@@ -602,7 +593,7 @@ class AgentCommand:
     context: dict
 
     # snapshot：应用必传的发起时资料；无默认值。
-    #   内容：profile / preferences / jobs，按动作再带 document 或关联对象。
+    #   内容：profile / jobs，按动作再带 document 或关联对象。
     #   生命周期：确认提案后快照仍不更新，修改后的资料须通过 services 重新查询。
     #   示例：snapshot["profile"] 的内容（Python）：
     #     {
@@ -628,6 +619,9 @@ class AgentCommand:
     # 同一会话已接受的原始聊天消息副本，仅含 role（user / assistant）和 content。
     history: list[dict[str, str]] = field(default_factory=list)
     summary: ChatSummary | None = None
+
+    # 上一次模型响应的用量；首次调用或上次未上报时为 None。
+    previous_usage: dict | None = None
 
     @property
     def chat_text(self) -> str:

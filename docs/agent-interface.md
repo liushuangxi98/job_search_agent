@@ -37,6 +37,7 @@
 | `human_input` | 首次为 `None`；恢复时为回答、确认、拒绝或结束决定 |
 | `history` | 同一聊天会话的完整原始消息副本。每条仅含 `role`（`user` 或 `assistant`）和 `content` |
 | `summary` | 应用保存的上一份聊天摘要，首次为 `None`。Agent 使用摘要和 `history[summary.covered_messages:]` 组织上下文 |
+| `previous_usage` | 上一次模型响应的用量，首次或未上报时为 `None`。聊天按同一会话传递，其他动作按同一运行传递 |
 
 `human_input` 包含 `input_id`、`decision`、`text` 和 `data`。`decision` 可取 `answer / confirm / reject / finish`。一次输入只处理一次，旧输入 ID 返回 409。
 
@@ -70,7 +71,7 @@
 - `pending_input`：等待用户输入时提供。
 - `state`：你需要在本次运行下一轮取回的 JSON 状态，仅内存保存。
 - `summary`：Agent 可写回 `{text, covered_messages}`，覆盖范围从第一条消息数起，仅包括本轮之前的历史。省略表示沿用旧摘要。应用独立追加原文。
-- `usage`：本次调用实际报告的 `input_tokens / output_tokens / total_tokens`。运行查询返回该运行已上报用量的合计；没有用量数据时为 `null`。
+- `usage`：本次模型响应的用量字典，包含 `input_tokens / output_tokens / total_tokens`，可带服务商的分项。模型未上报时传 `None`，没有调用模型时省略。运行查询分别返回 `usage` 和 `previous_usage`。确认、拒绝等固定回执沿用已有记录。
 
 | kind | data 的主要字段 |
 | --- | --- |
