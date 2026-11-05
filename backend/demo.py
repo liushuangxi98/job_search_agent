@@ -8,10 +8,10 @@ PROFILE = {'name': '示例求职者', 'headline': 'Python 自动化测试开发 
            'summary': '四年 Python 自动化测试开发经验，正在学习 Agent 应用开发。',
            'skills': ['Python', '自动化测试', '接口测试'], 'experience': '构建接口自动化测试及持续集成流程。',
            'education': '本科 · 计算机相关专业（示例）', 'experience_years': 4,
-           'projects': '开发接口自动化测试平台，支持用例执行和测试报告汇总（固定示例）。', 'evidence': []}
-PREFERENCES = {'city': '杭州', 'direction': 'Python Agent 应用开发', 'salary_min': 20000,
-               'salary_max': 30000, 'commute_origin': '杭州西湖区', 'commute_limit_minutes': 60,
-               'commute_mode': 'public_transit'}
+           'projects': '开发接口自动化测试平台，支持用例执行和测试报告汇总（固定示例）。', 'evidence': [],
+           'city': '杭州', 'direction': 'Python Agent 应用开发', 'salary_min': 20000,
+           'salary_max': 30000, 'commute_origin': '杭州西湖区', 'commute_limit_minutes': 60,
+           'commute_mode': 'public_transit'}
 JOBS = [
     {'company': '星河科技（虚构）', 'title': 'Agent 应用开发工程师', 'city': '杭州',
      'address': '示例办公地址，待核实', 'salary_min': 20000, 'salary_max': 30000,
@@ -33,7 +33,7 @@ NOTICE = '固定联调样例；未调用模型或外部工具，与输入内容�
 
 def examples():
     """返回示例画像、条件和岗位的深拷贝，避免界面编辑影响后续请求使用的固定样例。"""
-    return deepcopy({'profile': PROFILE, 'preferences': PREFERENCES, 'jobs': JOBS, 'notice': NOTICE})
+    return deepcopy({'profile': PROFILE, 'jobs': JOBS, 'notice': NOTICE})
 
 
 async def handle(command, services, emit):
@@ -49,22 +49,22 @@ async def handle(command, services, emit):
         raise AppError(502, 'DEMO_FAILURE', '这是固定的失败场景，用于验证界面错误处理。')
     if scenario == 'needs_input' and human is None and command.action != 'interview':
         if command.action == 'chat':
-            current = command.snapshot['preferences']
+            current = command.snapshot['profile']
             pending = {'kind': 'proposal', 'prompt': '演示修改：将期望城市设置为杭州，是否保存？',
-                       'proposal': {'target': 'preferences', 'revision': current['revision'],
+                       'proposal': {'target': 'profile', 'revision': current['revision'],
                                     'changes': {'city': '杭州'}}}
         else:
             pending = {'kind': 'question', 'prompt': '演示地址歧义：请补充或确认办公地址。'}
         return AgentResponse(status='needs_input', kind='chat', data={'message': pending['prompt'], 'notice': NOTICE}, pending_input=pending)
     if command.action == 'parse_resume':
-        profile, preferences = deepcopy(PROFILE), deepcopy(PREFERENCES)
+        profile = deepcopy(PROFILE)
         diagnosis = ['固定样例：请核对姓名、学历、工作年限、经历与求职条件，再统一确认。']
         if scenario == 'partial':
             profile['projects'] = ''
             diagnosis.append('固定缺项示例：请补充项目经历，个人核心资料不能标为信息盲区。')
         return AgentResponse(
             status='partial' if scenario == 'partial' else 'completed', kind='profile_draft',
-            data={'profile': profile, 'preferences': preferences, 'diagnosis': diagnosis, 'notice': NOTICE},
+            data={'profile': profile, 'diagnosis': diagnosis, 'notice': NOTICE},
         )
     if command.action == 'extract_jobs':
         jobs = deepcopy(JOBS)
@@ -126,6 +126,4 @@ async def handle(command, services, emit):
                                    'question_id': f'demo-{index + 1}', 'notice': NOTICE},
                              pending_input={'kind': 'question', 'prompt': question}, state={'answers': answers})
     message = '这是聊天入口的固定示例回复。接入你实现的 Agent 后，这里将根据上下文回答和提出资料修改建议。'
-    if human:
-        message = '修改已确认并保存。可重新评估查看新结果。' if human['decision'] == 'confirm' else '本次补充已处理；拒绝的修改没有保存。'
     return AgentResponse(kind='chat', data={'message': message, 'notice': NOTICE})

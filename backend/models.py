@@ -25,13 +25,12 @@ class Record:
 
 
 class Candidate(Base):
-    # 单用户应用只有一行资料，画像与条件共用 revision，避免相互覆盖旧状态。
+    # 单用户应用只有一行完整画像，revision 防止旧表单覆盖新资料。
     __tablename__ = 'candidate'
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
     revision: Mapped[int] = mapped_column(default=0)
     confirmed: Mapped[bool] = mapped_column(default=False)
     profile: Mapped[dict] = mapped_column(JSON, default=dict)
-    preferences: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class Document(Record, Base):

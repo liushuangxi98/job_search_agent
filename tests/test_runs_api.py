@@ -43,6 +43,8 @@ def test_completed_report_survives_restart_without_runtime(client, settings):
     with TestClient(create_app(settings)) as restarted:
         assert restarted.get('/api/runs/' + run['id']).status_code == 404
         report = restarted.get('/api/reports/' + report_id).json()
+        assert 'preferences' not in report['snapshot']
+        assert report['snapshot']['profile']['data']['city'] == '杭州'
         assert report['snapshot']['jobs'][0]['data']['jd_text'] == '原始 JD'
         assert report['is_demo'] is True
         assert restarted.get(f'/api/reports/{report_id}/export?format=json').status_code == 200
@@ -52,7 +54,7 @@ def test_completed_report_survives_restart_without_runtime(client, settings):
 
 
 def test_confirmation_applies_once_and_locks_other_runs(client):
-    before = client.get('/api/preferences').json()
+    before = client.get('/api/profile').json()
     run = start(client, 'chat', text='演示补充信息', demo_scenario='needs_input')
     assert run['status'] == 'needs_input'
     assert client.post('/api/runs', json={'action': 'chat', 'input': {'text': 'another'}}).status_code == 409
@@ -60,25 +62,25 @@ def test_confirmation_applies_once_and_locks_other_runs(client):
     accepted = client.post(f"/api/runs/{run['id']}/input", json=body)
     assert accepted.status_code == 202
     assert wait_run(client, run['id'])['status'] == 'completed'
-    saved = client.get('/api/preferences').json()
+    saved = client.get('/api/profile').json()
     assert saved['data']['city'] == '杭州'
     assert saved['revision'] == before['revision'] + 1
     assert client.post(f"/api/runs/{run['id']}/input", json=body).status_code == 409
-    assert client.get('/api/preferences').json() == saved
+    assert client.get('/api/profile').json() == saved
 
 
 def test_reject_and_revision_conflict_do_not_overwrite_preferences(client):
-    before = client.get('/api/preferences').json()
+    before = client.get('/api/profile').json()
     run = start(client, 'chat', text='演示', demo_scenario='needs_input')
     body = {'input_id': run['pending_input']['id'], 'decision': 'reject'}
     assert client.post(f"/api/runs/{run['id']}/input", json=body).status_code == 202
     wait_run(client, run['id'])
-    assert client.get('/api/preferences').json() == before
+    assert client.get('/api/profile').json() == before
     run = start(client, 'chat', text='演示', demo_scenario='needs_input')
-    client.put('/api/preferences', json={'revision': before['revision'], 'data': {'city': '深圳'}})
+    client.put('/api/profile', json={'revision': before['revision'], 'confirmed': False, 'data': {'city': '深圳'}})
     body = {'input_id': run['pending_input']['id'], 'decision': 'confirm'}
     assert client.post(f"/api/runs/{run['id']}/input", json=body).status_code == 409
-    assert client.get('/api/preferences').json()['data']['city'] == '深圳'
+    assert client.get('/api/profile').json()['data']['city'] == '深圳'
 
 
 def test_demo_failure_and_partial_states_are_visible(client):

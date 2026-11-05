@@ -18,6 +18,14 @@
 
 首次在新环境使用时，在 PyCharm 的 Terminal 中依次运行 `.\setup.cmd`、填写 `.env`、运行 `.\init_db.cmd`，再按上述步骤运行 `main.py`。本机已安装依赖并初始化数据库后，不必重复这些步骤。数据库初始化也可使用普通 Python 运行配置：将运行目标选为 **模块 `backend.init_db`**，参数填写 `--create-database`，工作目录选择项目根目录。
 
+**从旧版升级个人资料结构时**，先停止正在运行的应用，在项目终端运行以下命令，再启动 `main.py`：
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 -m backend.init_db
+```
+
+初始化入口会验证并将旧 `preferences` 合并进 `profile`，提交后移除旧列。合并失败会回滚，删列失败可安全重跑。账号需要 ALTER 权限。原修订号、确认标记和历史报告快照保留，后续初始化可重复执行。
+
 修改 Python 后停止并重新 Run/Debug；修改 HTML/CSS/JS 后刷新浏览器即可。停止时点击 PyCharm 的 Stop。若提示端口 8000 被占用，先停止之前通过 `start.cmd` 或另一个 Run 配置启动的本项目服务。
 
 操作入口参考 JetBrains 文档：[选择已有虚拟环境](https://www.jetbrains.com/help/pycharm/creating-virtual-environment.html)、[直接运行 Python 文件](https://www.jetbrains.com/help/pycharm/running-without-any-previous-configuring.html)。

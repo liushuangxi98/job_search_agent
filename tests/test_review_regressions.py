@@ -65,7 +65,7 @@ def test_pending_proposal_value_is_not_rewritten_by_redaction(settings):
                                             'proposal': {'target': 'profile', 'revision': 1,
                                                          'changes': {'summary': '参与123项目'}}})
     manager = RunService(settings.model_copy(update={'mysql_password': '123'}), None, None, handle)
-    run = Run(id='a' * 32, action='chat', input={}, context={}, snapshot={}, is_demo=True)
+    run = Run(id='a' * 32, action='chat', input={'text': '修改简介'}, context={}, snapshot={}, is_demo=True)
     manager.runs[run.id] = run
     asyncio.run(manager.execute(run))
     assert run.pending_input['proposal']['changes']['summary'] == '参与123项目'
@@ -75,7 +75,7 @@ def test_event_protocol_fields_are_not_redacted(settings):
     async def handle(command, services, emit):
         return AgentResponse(kind='chat', data={'message': '正常回复'})
     manager = RunService(settings.model_copy(update={'mysql_password': 'status'}), None, None, handle)
-    run = Run(id='b' * 32, action='chat', input={}, context={}, snapshot={}, is_demo=True)
+    run = Run(id='b' * 32, action='chat', input={'text': '测试事件'}, context={}, snapshot={}, is_demo=True)
     manager.runs[run.id] = run
     asyncio.run(manager.execute(run))
     assert manager.get(run.id)['events'][0]['kind'] == 'status'

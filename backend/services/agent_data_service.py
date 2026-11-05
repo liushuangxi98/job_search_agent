@@ -20,13 +20,13 @@ class AgentDataService:
         self.knowledge = knowledge
         self.report_service = reports
 
-    def candidate(self, section):
-        """读取 profile 或 preferences，返回含修订号的资料字典；缺失时抛 AppError。"""
-        return self.candidates.get(section)
+    def candidate(self):
+        """读取包含求职条件的完整画像，返回含修订号的资料字典；缺失时抛 AppError。"""
+        return self.candidates.get()
 
-    def update_candidate(self, section, data, revision, confirmed=None):
+    def update_candidate(self, data, revision, confirmed=None):
         """返回含新修订号的画像或条件字典；revision 是读取时的值，confirmed=None 保留状态。"""
-        return self.candidates.update(section, data, revision, confirmed)
+        return self.candidates.update(data, revision, confirmed)
 
     def job(self, key):
         """按岗位 ID 返回岗位及来源字典；缺失时抛 AppError。"""

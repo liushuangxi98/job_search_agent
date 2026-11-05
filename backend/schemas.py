@@ -36,26 +36,6 @@ class ProfileData(Payload):
     # 示例：[{"document_id": "resume_001", "locator": "第 2 页", "text": "负责接口自动化"}]。
     evidence: list[dict] = Field(default_factory=list, max_length=100)
 
-
-class ProfileUpdate(Payload):
-    """画像保存请求；修订号用于拒绝旧表单覆盖，confirmed 表示用户是否确认画像。"""
-    # 保存前读取到的共用修订号；必填非负整数；示例：3。版本冲突由服务检查，不由本模型检查。
-    revision: int = Field(ge=0)
-    # 是否确认画像；必填布尔值，无默认值；示例：true（JSON），确认非空条件见下方校验器。
-    confirmed: bool
-    # 要保存的完整画像内容；必填 ProfileData；示例：{"summary": "四年 Python 开发经验"}。
-    data: ProfileData
-
-    # 字段完成解析后再校验字段之间的业务关系，FastAPI 会把校验失败转换为 422。
-    @model_validator(mode='after')
-    def nonempty_confirmation(self):
-        """拒绝确认没有简介、经历和技能的画像；通过时返回当前对象，否则抛 ValueError。"""
-        if self.confirmed and not (self.data.summary or self.data.experience or self.data.skills):
-            raise ValueError('请至少填写简介、经历或技能后再确认画像')
-        return self
-
-
-class Preferences(Payload):
     # 求职城市；可省略，默认 ""，最多 100 字符；示例："杭州"。
     city: str = Field(default='', max_length=100)
     # 求职方向；草稿默认 ""，最多 200 字符；正式确认必须填写，不能由默认值代替用户提供。
@@ -82,11 +62,23 @@ class Preferences(Payload):
         return self
 
 
-class PreferencesUpdate(Payload):
-    # 保存前读取的修订号；必填非负整数，与画像共用版本；示例：3。
+
+class ProfileUpdate(Payload):
+    """画像保存请求；修订号用于拒绝旧表单覆盖，confirmed 表示用户是否确认画像。"""
+    # 保存前读取到的共用修订号；必填非负整数；示例：3。版本冲突由服务检查，不由本模型检查。
     revision: int = Field(ge=0)
-    # 要保存的条件；必填 Preferences，省略其子字段会采用默认值；示例：{"city": "杭州"}。
-    data: Preferences
+    # 是否确认画像；必填布尔值，无默认值；示例：true（JSON），确认非空条件见下方校验器。
+    confirmed: bool
+    # 要保存的完整画像内容；必填 ProfileData；示例：{"summary": "四年 Python 开发经验"}。
+    data: ProfileData
+
+    # 字段完成解析后再校验字段之间的业务关系，FastAPI 会把校验失败转换为 422。
+    @model_validator(mode='after')
+    def nonempty_confirmation(self):
+        """拒绝确认没有简介、经历和技能的画像；通过时返回当前对象，否则抛 ValueError。"""
+        if self.confirmed and not (self.data.summary or self.data.experience or self.data.skills):
+            raise ValueError('请至少填写简介、经历或技能后再确认画像')
+        return self
 
 
 class CandidateUpdate(Payload):
@@ -97,8 +89,6 @@ class CandidateUpdate(Payload):
     # profile：完整画像；必填，正式确认要求全部个人核心字段有效。
     profile: ProfileData
 
-    # preferences：同一次确认的求职条件；必填，方向/城市/起点/期望薪资均不能缺失。
-    preferences: Preferences
 
 
 class JobData(Payload):

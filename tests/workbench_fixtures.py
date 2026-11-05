@@ -8,12 +8,6 @@ def complete_profile(**changes):
         'experience': '维护接口自动化平台及持续集成流程。',
         'projects': '开发 RAG 题库检索项目，负责召回评测和接口测试。',
         'summary': '四年 Python 测试开发经验',
-        **changes,
-    }
-
-
-def complete_preferences(**changes):
-    return {
         'direction': 'Python Agent 应用开发', 'city': '杭州',
         'commute_origin': '杭州市西湖区文三路',
         'salary_min': 20000, 'salary_max': 30000,
@@ -30,9 +24,8 @@ def complete_job(**changes):
     }
 
 
-def candidate_payload(revision, *, profile=None, preferences=None):
+def candidate_payload(revision, *, profile=None):
     return {
         'revision': revision,
         'profile': complete_profile() if profile is None else profile,
-        'preferences': complete_preferences() if preferences is None else preferences,
     }

@@ -8,31 +8,30 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from backend.exceptions import AppError
-from workbench_fixtures import complete_job, complete_preferences, complete_profile
+from workbench_fixtures import complete_job, complete_profile
 
 
 def test_service_cannot_clear_a_confirmed_profile(client):
     service = client.app.state.candidate_service
-    preferences = service.update('preferences', complete_preferences(), 0)
-    saved = service.update('profile', complete_profile(summary='Python 开发'),
-                           preferences['revision'], confirmed=True)
+    saved = service.update(complete_profile(summary='Python 开发'),
+                           0, confirmed=True)
 
     with pytest.raises(ValidationError):
-        service.update('profile', {}, saved['revision'])
+        service.update({}, saved['revision'])
 
-    assert service.get('profile') == saved
+    assert service.get() == saved
     assert client.get('/api/profile').json() == saved
 
 
 def test_service_rejects_stale_candidate_revision(client):
     service = client.app.state.candidate_service
-    saved = service.update('preferences', {'city': '杭州'}, 0)
+    saved = service.update({'city': '杭州'}, 0)
 
     with pytest.raises(AppError) as error:
-        service.update('preferences', {'city': '深圳'}, 0)
+        service.update({'city': '深圳'}, 0)
 
     assert error.value.code == 'REVISION_CONFLICT'
-    assert service.get('preferences') == saved
+    assert service.get() == saved
 
 
 def test_service_failed_job_update_preserves_data_and_sources(client):
@@ -79,8 +78,7 @@ def test_database_initialization_preserves_existing_data(client, settings):
     from backend.database import initialize_database
 
     service = client.app.state.candidate_service
-    preferences = service.update('preferences', complete_preferences(), 0)
-    saved = service.update('profile', complete_profile(summary='重启后应保留'),
-                           preferences['revision'], confirmed=True)
+    saved = service.update(complete_profile(summary='重启后应保留'),
+                           0, confirmed=True)
     initialize_database(settings)
-    assert service.get('profile') == saved
+    assert service.get() == saved

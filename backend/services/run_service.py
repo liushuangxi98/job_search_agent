@@ -11,12 +11,25 @@ from pydantic import ValidationError
 
 from ..config import Settings
 from ..contracts import (
-    AgentCommand, AgentResponse, ApplicationServices, PendingInput,
-    RunInput, RunStart, validate_result,
+    AgentCommand, AgentResponse, ApplicationServices, ChatSummary, PendingInput,
+    RunInput, RunStart, TokenUsage, validate_result,
 )
 from ..exceptions import AppError
-from ..schemas import JobData, Preferences, ProfileData
+from ..schemas import JobData, ProfileData
 from .material_validation import candidate_missing, job_missing
+
+
+@dataclass
+class ChatSession:
+    """同一标签页共享的原文和 Agent 写回的摘要，应用重启后清空。"""
+    messages: list[dict[str, str]] = field(default_factory=list)
+    summary: ChatSummary | None = None
+
+    def append_turn(self, user: str, assistant: str):
+        self.messages.extend([
+            {'role': 'user', 'content': user},
+            {'role': 'assistant', 'content': assistant},
+        ])
 
 
 @dataclass
@@ -38,6 +51,7 @@ class Run:
     state: dict = field(default_factory=dict)
     report_id: str | None = None
     task: object = None
+    usage: TokenUsage | None = None
 
 
 class RunService:
@@ -52,6 +66,7 @@ class RunService:
         self.handler = handler
         self.services = ApplicationServices(repository, files)
         self.runs = {}
+        self.chat_sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
         self.log_dir = settings.data_dir / 'logs'
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -110,6 +125,7 @@ class RunService:
             'events': [event for event in events if event['seq'] > after],
             'next_seq': events[-1]['seq'] if events else 0,
             'result': run.result, 'pending_input': run.pending_input, 'report_id': run.report_id,
+            'usage': run.usage.model_dump() if run.usage else None,
         })
 
     def current(self):
@@ -130,14 +146,13 @@ class RunService:
             if not isinstance(value, str) or not value.strip() or len(value) > 50000:
                 raise AppError(422, 'JD_TEXT', '招聘原文须为不超过 50000 字的非空文本')
         snapshot = {
-            'profile': self.repository.candidate('profile'),
-            'preferences': self.repository.candidate('preferences'),
+            'profile': self.repository.candidate(),
             'jobs': [],
         }
         if body.action in {'evaluate', 'interview'}:
             if not snapshot['profile']['confirmed']:
                 raise AppError(409, 'PROFILE_UNCONFIRMED', '请先确认简历画像')
-            missing = candidate_missing(snapshot['profile']['data'], snapshot['preferences']['data'])
+            missing = candidate_missing(snapshot['profile']['data'])
             if missing:
                 raise AppError(409, 'CANDIDATE_INCOMPLETE', '请先完善个人资料：' + '、'.join(item['label'] for item in missing))
             ids = body.input.get('job_ids', []) if body.action == 'evaluate' else [body.input.get('job_id')]
@@ -203,13 +218,12 @@ class RunService:
         if not isinstance(changes, dict) or not changes:
             raise AppError(422, 'INVALID_PROPOSAL', '修改提案为空或格式错误')
         revision = proposal.get('revision')
-        if target in {'profile', 'preferences'}:
-            current = self.repository.candidate(target)
-            schema = ProfileData if target == 'profile' else Preferences
-            if set(changes) - set(schema.model_fields):
+        if target == 'profile':
+            current = self.repository.candidate()
+            if set(changes) - set(ProfileData.model_fields):
                 raise AppError(422, 'INVALID_PROPOSAL', '提案包含不可修改字段')
-            data = schema.model_validate({**current['data'], **changes}).model_dump()
-            return self.repository.update_candidate(target, data, revision)
+            data = ProfileData.model_validate({**current['data'], **changes}).model_dump()
+            return self.repository.update_candidate(data, revision)
         if target == 'job':
             key = proposal.get('target_id')
             current = self.repository.job(key)
@@ -221,7 +235,7 @@ class RunService:
     async def respond(self, key: str, body: RunInput):
         """消费当前待处理输入并返回运行状态；重复或过期 input_id 会抛 AppError。
 
-        确认提案后先保存再续接 Agent，拒绝不保存；提案保存失败仍保留待处理输入。
+        聊天提案由应用直接回复；保存失败仍保留待处理输入，可拒绝该提案。
         面试的 finish 交给 Agent 生成报告，其他活动的 finish 直接结束。
         """
         async with self.lock:
@@ -232,7 +246,6 @@ class RunService:
                 raise AppError(409, 'INPUT_ALREADY_USED', '该输入已处理或已失效，请刷新当前状态')
             pending = run.pending_input
             if pending['kind'] == 'proposal':
-                # 应用先保存已确认提案，之后只通知 Agent 继续，不能再次应用同一修改。
                 if body.decision not in {'confirm', 'reject'}:
                     raise AppError(422, 'DECISION_REQUIRED', '请选择确认或拒绝')
                 if body.decision == 'confirm':
@@ -240,6 +253,17 @@ class RunService:
             elif body.decision not in {'answer', 'finish'} or (body.decision == 'answer' and not (body.text or body.data)):
                 raise AppError(422, 'ANSWER_REQUIRED', '请输入回答，或选择结束')
             run.pending_input = None
+            if run.action == 'chat' and body.decision in {'confirm', 'reject', 'finish'}:
+                user, message = {
+                    'confirm': ('确认修改', '修改已由应用确认并保存。后续问题将使用更新后的资料。'),
+                    'reject': ('拒绝修改', '已拒绝这次修改，资料保持原样。'),
+                    'finish': ('结束本次', '已结束本次活动。'),
+                }[body.decision]
+                self.chat_session(run).append_turn(user, message)
+                run.result = {'kind': 'chat', 'data': {'message': message}}
+                run.status = 'completed'
+                await self.emit(run, 'status', '已完成')
+                return self.get(key)
             if body.decision == 'finish' and run.action != 'interview':
                 run.status = 'completed'
                 run.result = {'kind': 'chat', 'data': {'message': '已结束本次活动，没有继续执行评估或资料处理。'}}
@@ -248,6 +272,13 @@ class RunService:
             run.status = 'running'
             run.task = asyncio.create_task(self.execute(run, body.model_dump()))
             return self.get(key)
+
+    def chat_session(self, run):
+        """只按标签页会话分组；未传 session_id 的调用仅在同一运行内共享。"""
+        key = str(run.context.get('session_id') or run.id)
+        if key not in self.chat_sessions:
+            self.chat_sessions[key] = ChatSession()
+        return self.chat_sessions[key]
 
     async def execute(self, run, human=None):
         """调用异步入口并更新 run，成功无返回值；human 是本轮人工输入，首次为 None。
@@ -259,6 +290,11 @@ class RunService:
             await self.emit(run, 'status', '继续执行' if human else '开始执行', {'mode': self.settings.agent_mode})
             command = AgentCommand(run.id, run.action, deepcopy(run.input), deepcopy(run.context),
                                    deepcopy(run.snapshot), deepcopy(run.state), human)
+            session = self.chat_session(run) if run.action == 'chat' else None
+            if session:
+                command.history = [message.copy() for message in session.messages]
+                command.summary = deepcopy(session.summary)
+                user_text = command.chat_text
 
             async def emit(kind, message, data=None):
                 """把 Agent 的事件绑定到本次运行，沿用外层的脱敏和日志写入。"""
@@ -267,9 +303,17 @@ class RunService:
             # await 等待入口交回结果；当前方法中的同步 SQL 和文件操作仍占用事件循环。
             value = await self.handler(command, self.services, emit)
             response = value if isinstance(value, AgentResponse) else AgentResponse.model_validate(value)
+            if response.usage:
+                previous = run.usage
+                run.usage = TokenUsage(**{
+                    name: count + (getattr(previous, name) if previous else 0)
+                    for name, count in response.usage.model_dump().items()
+                })
             response.data = validate_result(response.kind, response.data)
             # 在契约边界校验可序列化性，错误结果不能进入报告表。
             json.dumps(response.model_dump(), ensure_ascii=False, allow_nan=False)
+            if session and response.summary and response.summary.covered_messages > len(session.messages):
+                raise ValueError('摘要覆盖范围超出已有聊天记录')
             run.result = {'kind': response.kind, 'data': deepcopy(response.data)}
             run.state = deepcopy(response.state)
             # 只有 needs_input 生成续接入口；partial 表示当前运行已结束但结果不完整。
@@ -283,6 +327,10 @@ class RunService:
                 run.report_id = report['id']
             run.status = response.status
             await self.emit(run, 'status', {'completed': '已完成', 'partial': '已有部分结果', 'needs_input': '等待你的补充', 'failed': '执行失败'}[run.status])
+            if session and response.kind == 'chat' and run.status != 'failed':
+                session.append_turn(user_text, response.data['message'])
+                if response.summary:
+                    session.summary = response.summary.model_copy()
         except asyncio.CancelledError:
             run.status = 'failed'
             raise

@@ -13,7 +13,7 @@ from backend.app import create_app
 from backend.contracts import AgentResponse, validate_result
 from backend.models import Candidate, Job, Report
 from test_runs_api import ready_profile, start, wait_run
-from workbench_fixtures import candidate_payload, complete_job, complete_preferences, complete_profile
+from workbench_fixtures import candidate_payload, complete_job, complete_profile
 
 
 CANDIDATE_MISSING = [
@@ -23,11 +23,11 @@ CANDIDATE_MISSING = [
     ('profile', 'skills', []),
     ('profile', 'experience', ''),
     ('profile', 'projects', ''),
-    ('preferences', 'direction', ''),
-    ('preferences', 'city', ''),
-    ('preferences', 'commute_origin', ''),
-    ('preferences', 'salary_min', None),
-    ('preferences', 'salary_max', None),
+    ('profile', 'direction', ''),
+    ('profile', 'city', ''),
+    ('profile', 'commute_origin', ''),
+    ('profile', 'salary_min', None),
+    ('profile', 'salary_max', None),
 ]
 JOB_MISSING = [
     ('company', ''), ('title', ''), ('city', ''), ('address', ''), ('jd_text', ''),
@@ -36,7 +36,7 @@ JOB_MISSING = [
 OLD_SCORES = {'salary_score', 'commute_score', 'total_score'}
 
 
-def test_candidate_combines_sections_and_increments_revision_once(client, settings):
+def test_candidate_saves_flat_profile_and_increments_revision_once(client, settings):
     initial = client.get('/api/candidate')
     assert initial.status_code == 200
     before = initial.json()
@@ -54,11 +54,11 @@ def test_candidate_combines_sections_and_increments_revision_once(client, settin
     assert saved['confirmed'] is True
     assert saved['missing'] == []
     assert saved['profile']['experience_years'] == 0
-    for section in ('profile', 'preferences'):
-        assert {key: saved[section][key] for key in payload[section]} == payload[section]
-        legacy = client.get('/api/' + section).json()
-        assert legacy['revision'] == saved['revision']
-        assert legacy['data'] == saved[section]
+    assert {key: saved['profile'][key] for key in payload['profile']} == payload['profile']
+    legacy = client.get('/api/profile').json()
+    assert legacy['revision'] == saved['revision']
+    assert legacy['data'] == saved['profile']
+    assert 'preferences' not in saved
     with TestClient(create_app(settings)) as restarted:
         assert restarted.get('/api/candidate').json() == saved
 
@@ -66,16 +66,14 @@ def test_candidate_combines_sections_and_increments_revision_once(client, settin
 @pytest.mark.parametrize('section,field,value', CANDIDATE_MISSING + [
     ('profile', 'name', '   '), ('profile', 'skills', ['   ']),
 ])
-def test_candidate_missing_field_rejects_both_sections_atomically(client, section, field, value):
+def test_candidate_missing_field_rejects_complete_profile_atomically(client, section, field, value):
     before = ready_profile(client)
-    payload = candidate_payload(before['revision'], profile=complete_profile(name='不应写入'),
-                                preferences=complete_preferences(city='上海'))
+    payload = candidate_payload(before['revision'], profile=complete_profile(name='不应写入', city='上海'))
     payload[section][field] = value
     response = client.put('/api/candidate', json=payload)
     assert response.status_code == 422, response.text
     assert client.get('/api/candidate').json() == before
     assert client.get('/api/profile').json()['data'] == before['profile']
-    assert client.get('/api/preferences').json()['data'] == before['preferences']
 
 
 @pytest.mark.parametrize('section,field,value', [
@@ -83,8 +81,8 @@ def test_candidate_missing_field_rejects_both_sections_atomically(client, sectio
     ('profile', 'experience_years', 'NaN'),
     ('profile', 'experience_years', 'Infinity'),
     pytest.param('profile', 'projects', '项' * 20001, id='projects-too-long'),
-    ('preferences', 'salary_min', 0),
-    ('preferences', 'salary_min', 40000),
+    ('profile', 'salary_min', 0),
+    ('profile', 'salary_min', 40000),
 ])
 def test_candidate_invalid_values_do_not_write(client, section, field, value):
     before = ready_profile(client)
@@ -94,24 +92,19 @@ def test_candidate_invalid_values_do_not_write(client, section, field, value):
     assert client.get('/api/candidate').json() == before
 
 
-def test_stale_candidate_revision_preserves_both_saved_sections(client):
+def test_stale_candidate_revision_preserves_saved_profile(client):
     original = ready_profile(client)
     winner = client.put('/api/candidate', json=candidate_payload(
-        original['revision'], profile=complete_profile(name='最新姓名'),
-        preferences=complete_preferences(city='上海'),
+        original['revision'], profile=complete_profile(name='最新姓名', city='上海'),
     ))
     assert winner.status_code == 200
     saved = winner.json()
     assert saved['revision'] == original['revision'] + 1
-    stale = candidate_payload(original['revision'], profile=complete_profile(name='旧表单'),
-                              preferences=complete_preferences(city='深圳'))
+    stale = candidate_payload(original['revision'], profile=complete_profile(name='旧表单', city='深圳'))
     assert client.put('/api/candidate', json=stale).status_code == 409
     assert client.get('/api/candidate').json() == saved
     assert client.put('/api/profile', json={
         'revision': original['revision'], 'confirmed': True, 'data': stale['profile'],
-    }).status_code == 409
-    assert client.put('/api/preferences', json={
-        'revision': original['revision'], 'data': stale['preferences'],
     }).status_code == 409
     assert client.get('/api/candidate').json() == saved
 
@@ -119,7 +112,7 @@ def test_stale_candidate_revision_preserves_both_saved_sections(client):
 def test_candidate_omitted_direction_is_not_silently_confirmed(client):
     before = client.get('/api/candidate').json()
     payload = candidate_payload(before['revision'])
-    del payload['preferences']['direction']
+    del payload['profile']['direction']
     response = client.put('/api/candidate', json=payload)
     assert response.status_code == 422
     assert client.get('/api/candidate').json() == before
@@ -147,10 +140,9 @@ def test_legacy_job_reimport_reuses_id_and_merges_sources(client):
     assert client.get('/api/jobs').json()['total'] == 1
 
 
-def test_candidate_database_failure_rolls_back_both_sections_and_revision(client):
+def test_candidate_database_failure_rolls_back_complete_profile_and_revision(client):
     before = ready_profile(client)
-    payload = candidate_payload(before['revision'], profile=complete_profile(name='事务中的姓名'),
-                                preferences=complete_preferences(city='上海'))
+    payload = candidate_payload(before['revision'], profile=complete_profile(name='事务中的姓名', city='上海'))
     factory = client.app.state.database.session_factory
     flushed = []
 
@@ -158,7 +150,7 @@ def test_candidate_database_failure_rolls_back_both_sections_and_revision(client
         # 在真实事务已 flush 后失败，验证数据库回滚，而非仅请求入参被拒绝。
         session.flush()
         row = session.get(Candidate, 1)
-        flushed.append((row.profile['name'], row.preferences['city'], row.revision))
+        flushed.append((row.profile['name'], row.profile['city'], row.revision))
         raise SQLAlchemyError('simulated commit failure')
 
     event.listen(factory, 'before_commit', fail_commit)
@@ -172,12 +164,10 @@ def test_candidate_database_failure_rolls_back_both_sections_and_revision(client
 
 
 def test_legacy_candidate_without_new_json_keys_is_readable_without_rewriting_storage(client):
-    profile = {'summary': '旧版已确认简介', 'skills': ['Python']}
-    preferences = {'city': '杭州'}
+    profile = {'summary': '旧版已确认简介', 'skills': ['Python'], 'city': '杭州'}
     with client.app.state.database.session_factory.begin() as session:
         row = session.get(Candidate, 1)
         row.profile = deepcopy(profile)
-        row.preferences = deepcopy(preferences)
         row.revision = 3
         row.confirmed = True
     response = client.get('/api/candidate')
@@ -187,15 +177,14 @@ def test_legacy_candidate_without_new_json_keys_is_readable_without_rewriting_st
     assert candidate['confirmed'] is False
     assert candidate['profile']['experience_years'] is None
     assert candidate['profile']['projects'] == ''
-    assert {'profile.experience_years', 'profile.projects', 'preferences.commute_origin'} <= {
+    assert {'profile.experience_years', 'profile.projects', 'profile.commute_origin'} <= {
         item['field'] for item in candidate['missing']
     }
     assert client.get('/api/profile').json()['data']['summary'] == profile['summary']
-    assert client.get('/api/preferences').json()['data']['city'] == preferences['city']
+    assert client.get('/api/profile').json()['data']['city'] == profile['city']
     with client.app.state.database.session_factory() as session:
         row = session.get(Candidate, 1)
         assert row.profile == profile
-        assert row.preferences == preferences
         assert row.revision == 3
 
 
@@ -207,7 +196,6 @@ def test_old_confirmation_marker_cannot_bypass_missing_candidate_fields(client, 
     with client.app.state.database.session_factory.begin() as session:
         row = session.get(Candidate, 1)
         row.profile = payload['profile']
-        row.preferences = payload['preferences']
         row.revision = 7
         row.confirmed = True
     old = client.get('/api/candidate').json()
@@ -215,7 +203,6 @@ def test_old_confirmation_marker_cannot_bypass_missing_candidate_fields(client, 
     assert {item['field'] for item in old['missing']} == {section + '.' + field}
     assert all(item['label'] for item in old['missing'])
     assert client.get('/api/profile').status_code == 200
-    assert client.get('/api/preferences').status_code == 200
     assert client.put('/api/profile', json={
         'revision': old['revision'], 'confirmed': True, 'data': old['profile'],
     }).status_code == 422
@@ -235,7 +222,7 @@ def test_old_confirmation_marker_cannot_bypass_missing_candidate_fields(client, 
     assert repaired.json()['revision'] == 8
 
 
-@pytest.mark.parametrize('section,field', [('profile', 'projects'), ('preferences', 'commute_origin')])
+@pytest.mark.parametrize('section,field', [('profile', 'projects'), ('profile', 'commute_origin')])
 def test_personal_missing_fields_cannot_be_waived_with_blind_spots(client, section, field):
     before = client.get('/api/candidate').json()
     payload = candidate_payload(before['revision'])
@@ -487,7 +474,7 @@ def test_old_report_scores_and_snapshot_survive_edits_deletion_and_restart(clien
         'match_score': 80, 'salary_score': 100, 'commute_score': 80, 'total_score': 85,
     }]}
     snapshot = {'profile': client.get('/api/profile').json(),
-                'preferences': client.get('/api/preferences').json(), 'jobs': [job]}
+                'preferences': {'revision': candidate['revision'], 'data': {'city': '杭州'}}, 'jobs': [job]}
     # 旧报告直接按当时 JSON 入库，不能先经过新结果契约而丢失历史字段。
     with client.app.state.database.session_factory.begin() as session:
         row = Report(kind='evaluation', data=data, snapshot=snapshot,
@@ -499,8 +486,7 @@ def test_old_report_scores_and_snapshot_survive_edits_deletion_and_restart(clien
     assert before['data'] == data
     assert before['snapshot'] == snapshot
     assert client.put('/api/candidate', json=candidate_payload(
-        candidate['revision'], profile=complete_profile(name='新姓名'),
-        preferences=complete_preferences(city='上海'),
+        candidate['revision'], profile=complete_profile(name='新姓名', city='上海'),
     )).status_code == 200
     assert client.put('/api/jobs/' + job['id'], json={
         'revision': job['revision'], 'data': complete_job(jd_text='新的招聘要求'),
@@ -524,24 +510,23 @@ def test_demo_drafts_require_explicit_confirmation_and_partial_profile_cannot_sa
     assert data['notice']
     assert client.get('/api/candidate').json() == before
     saved = client.put('/api/candidate', json={
-        'revision': before['revision'], 'profile': data['profile'], 'preferences': data['preferences'],
+        'revision': before['revision'], 'profile': data['profile'],
     })
     assert saved.status_code == 200
     partial = start(client, 'parse_resume', demo_scenario='partial')
     data = partial['result']['data']
     assert partial['result']['kind'] == 'profile_draft'
     assert client.put('/api/candidate', json={
-        'revision': saved.json()['revision'], 'profile': data['profile'], 'preferences': data['preferences'],
+        'revision': saved.json()['revision'], 'profile': data['profile'],
     }).status_code == 422
     assert client.get('/api/candidate').json() == saved.json()
 
 
-def test_profile_draft_requires_both_sections_and_diagnosis_defaults_to_empty():
-    data = {'profile': complete_profile(), 'preferences': complete_preferences()}
+def test_profile_draft_requires_complete_profile_and_diagnosis_defaults_to_empty():
+    data = {'profile': complete_profile()}
     assert validate_result('profile_draft', data)['diagnosis'] == []
-    for missing in ('profile', 'preferences'):
-        with pytest.raises(ValidationError):
-            validate_result('profile_draft', {key: value for key, value in data.items() if key != missing})
+    with pytest.raises(ValidationError):
+        validate_result('profile_draft', {})
     assert validate_result('job_drafts', {'jobs': [complete_job()]})['diagnosis'] == []
 
 

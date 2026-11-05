@@ -1,12 +1,11 @@
 """检查确认入库所需的基础资料，不代替 Agent 的解析、材料诊断或业务推理。"""
 
 CANDIDATE_FIELDS = {
-    'profile.name': '姓名', 'profile.education': '学历',
-    'profile.experience_years': '工作年限', 'profile.skills': '技能',
-    'profile.experience': '工作经历', 'profile.projects': '项目经历',
-    'preferences.direction': '求职方向', 'preferences.city': '目标城市',
-    'preferences.commute_origin': '通勤起点',
-    'preferences.salary_min': '期望月薪下限', 'preferences.salary_max': '期望月薪上限',
+    'name': '姓名', 'education': '学历',
+    'experience_years': '工作年限', 'skills': '技能',
+    'experience': '工作经历', 'projects': '项目经历',
+    'direction': '求职方向', 'city': '目标城市', 'commute_origin': '通勤起点',
+    'salary_min': '期望月薪下限', 'salary_max': '期望月薪上限',
 }
 JOB_FIELDS = {
     'company': '公司名称', 'title': '岗位名称', 'city': '工作城市',
@@ -14,16 +13,14 @@ JOB_FIELDS = {
 }
 
 
-def candidate_missing(profile: dict, preferences: dict) -> list[dict]:
+def candidate_missing(profile: dict) -> list[dict]:
     """个人资料缺项列表；0 年经验有效，个人资料不能用信息盲区代替。"""
-    sections = {'profile': profile, 'preferences': preferences}
     missing = []
-    for path, label in CANDIDATE_FIELDS.items():
-        section, field = path.split('.')
-        value = sections[section].get(field)
+    for field, label in CANDIDATE_FIELDS.items():
+        value = profile.get(field)
         absent = not any(value or []) if field == 'skills' else value is None or value == ''
         if absent:
-            missing.append({'field': path, 'label': label})
+            missing.append({'field': f'profile.{field}', 'label': label})
     return missing
 
 

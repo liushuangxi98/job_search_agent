@@ -22,21 +22,12 @@ class CandidateRepository:
             query = query.with_for_update()
         return self.session.scalar(query)
 
-    def update(self, row: Candidate, section: str, data: dict, confirmed=None):
-        """用 data 整体替换当前会话记录 row 的指定部分，递增共用修订号并 flush，返回 None。
-        section 应为 profile（画像）或 preferences（条件），合法值与旧修订号由服务检查。
+    def update(self, row: Candidate, data: dict, confirmed=None):
+        """用 data 整体替换当前会话记录 row 的完整画像，递增共用修订号并 flush，返回 None。
         confirmed=None 时保留画像确认状态，否则一并更新确认状态。
         """
-        setattr(row, section, data)
+        row.profile = data
         if confirmed is not None:
             row.confirmed = confirmed
-        row.revision += 1
-        self.session.flush()
-
-    def confirm(self, row: Candidate, profile: dict, preferences: dict):
-        """同一事务保存两部分资料，统一确认，修订号只增加一次。"""
-        row.profile = profile
-        row.preferences = preferences
-        row.confirmed = True
         row.revision += 1
         self.session.flush()

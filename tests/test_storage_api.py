@@ -1,14 +1,10 @@
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
-from workbench_fixtures import complete_job, complete_preferences, complete_profile
+from workbench_fixtures import complete_job, complete_profile
 
 
 def test_profile_persists_json_and_rejects_stale_update(client, settings):
-    preferences = client.get('/api/preferences').json()
-    assert client.put('/api/preferences', json={
-        'revision': preferences['revision'], 'data': complete_preferences(),
-    }).status_code == 200
     initial = client.get('/api/profile').json()
     payload = {'revision': initial['revision'], 'confirmed': True,
                'data': complete_profile(name='求职者 🧑‍💻', summary='四年 Python 测试开发')}
@@ -24,10 +20,10 @@ def test_profile_persists_json_and_rejects_stale_update(client, settings):
 
 
 def test_invalid_preferences_do_not_change_database(client):
-    before = client.get('/api/preferences').json()
-    bad = {'revision': before['revision'], 'data': {'salary_min': 30000, 'salary_max': 20000}}
-    assert client.put('/api/preferences', json=bad).status_code == 422
-    assert client.get('/api/preferences').json() == before
+    before = client.get('/api/profile').json()
+    bad = {'revision': before['revision'], 'confirmed': False, 'data': {'salary_min': 30000, 'salary_max': 20000}}
+    assert client.put('/api/profile', json=bad).status_code == 422
+    assert client.get('/api/profile').json() == before
 
 
 def test_job_sources_unknown_id_rolls_back_and_search_works(client):

@@ -12,8 +12,10 @@ const labels = {
   commute_origin: '通勤起点', salary_min: '月薪下限', salary_max: '月薪上限',
   company: '公司', title: '职位', address: '办公地址', jd_text: '岗位描述', salary: '薪资',
 };
-const profileKeys = ['name', 'education', 'experience_years', 'skills', 'experience', 'projects'];
-const preferenceKeys = ['direction', 'city', 'commute_origin', 'salary_min', 'salary_max'];
+const profileKeys = [
+  'name', 'education', 'experience_years', 'skills', 'experience', 'projects',
+  'direction', 'city', 'commute_origin', 'salary_min', 'salary_max',
+];
 const jobKeys = ['company', 'title', 'city', 'address', 'jd_text', 'salary'];
 const actionNames = {parse_resume: '简历整理', extract_jobs: '岗位提取', index_knowledge: '题库整理', evaluate: '岗位评估', interview: '模拟面试', chat: '聊天'};
 const state = {
@@ -111,7 +113,7 @@ function fileRows(items, action) {
 function uploadBox(kind, title, text) {
   return `<div class="upload-zone"><div class="upload-symbol" aria-hidden="true">↥</div><h3>${esc(title)}</h3><p>${esc(text)}</p>${button('选择文件', 'upload', `data-kind="${kind}" data-start`, 'secondary')}</div>`;
 }
-function candidateFields(profile, preferences) {
+function candidateFields(profile) {
   const required = {required: true};
   const salary = {required: true, type: 'number', max: 10000000};
   return `<div class="form-grid">
@@ -122,11 +124,11 @@ function candidateFields(profile, preferences) {
     ${field('工作经历', 'experience', profile.experience, {...required, area: true, full: true, maxLength: 20000, hint: '暂无工作经历请如实填写'})}
     ${field('项目经历', 'projects', profile.projects, {...required, area: true, full: true, maxLength: 20000})}
   </div><h3 class="form-section">求职条件</h3><div class="form-grid">
-    ${field('求职方向', 'direction', preferences.direction, {...required, maxLength: 200})}
-    ${field('期望城市', 'city', preferences.city, {...required, maxLength: 100})}
-    ${field('通勤起点', 'commute_origin', preferences.commute_origin, {...required, full: true, maxLength: 300, hint: '城市及具体地址，用于查询公交与驾车路线'})}
-    ${field('期望月薪下限（元）', 'salary_min', preferences.salary_min ?? '', salary)}
-    ${field('期望月薪上限（元）', 'salary_max', preferences.salary_max ?? '', salary)}
+    ${field('求职方向', 'direction', profile.direction, {...required, maxLength: 200})}
+    ${field('期望城市', 'city', profile.city, {...required, maxLength: 100})}
+    ${field('通勤起点', 'commute_origin', profile.commute_origin, {...required, full: true, maxLength: 300, hint: '城市及具体地址，用于查询公交与驾车路线'})}
+    ${field('期望月薪下限（元）', 'salary_min', profile.salary_min ?? '', salary)}
+    ${field('期望月薪上限（元）', 'salary_max', profile.salary_max ?? '', salary)}
   </div>`;
 }
 function diagnosisHTML(data) {
@@ -145,7 +147,7 @@ async function resumePage() {
     </div><article class="card"><header class="card-head"><div><h2>我的简历画像</h2><p>人工核对 · 薪资仅作资料展示</p></div><span class="badge">修订 ${candidate.revision}</span></header><div class="card-body">
       ${state.profileDraft ? diagnosisHTML(state.profileDraft) : ''}
       ${draft ? `<div class="tip">${draft.revision !== candidate.revision ? '已保存资料有更新；未保存输入已保留，直接保存会提示版本冲突。' : '未保存的输入已保留。'} ${button('读取已保存资料', 'discard-candidate', '', 'ghost small')}</div>` : ''}
-      <form id="profile-form"><div id="candidate-errors" class="error-banner" role="alert" hidden></div>${candidateFields(data.profile, data.preferences)}<div class="form-actions"><button>保存并确认画像与条件</button></div></form>
+      <form id="profile-form"><div id="candidate-errors" class="error-banner" role="alert" hidden></div>${candidateFields(data.profile)}<div class="form-actions"><button>保存并确认画像与条件</button></div></form>
       ${(data.profile.evidence || []).length ? `<details class="detail-section"><summary>原始提取依据</summary><pre class="prose">${esc(JSON.stringify(data.profile.evidence, null, 2))}</pre></details>` : ''}
     </div></article></div>`;
 }
@@ -540,8 +542,8 @@ function reviewResult(run) {
   const kind = run.result?.kind;
   if (kind === 'profile_draft') {
     state.modal = {kind, data, batch: state.runBatches.get(run.id)};
-    openDialog('核对简历与条件草稿', diagnosisHTML(data) + `<dl class="job-meta">${[...profileKeys, ...preferenceKeys].map(key => {
-      const value = profileKeys.includes(key) ? data.profile[key] : data.preferences[key];
+    openDialog('核对简历与条件草稿', diagnosisHTML(data) + `<dl class="job-meta">${profileKeys.map(key => {
+      const value = data.profile[key];
       return `<dt>${esc(labels[key])}</dt><dd class="prose">${esc(Array.isArray(value) ? value.join('、') : value ?? '待补充')}</dd>`;
     }).join('')}</dl>`, button('填入画像表单', 'use-profile-draft'));
   } else if (kind === 'job_drafts') {
@@ -678,7 +680,7 @@ async function saveQuestions() {
 }
 function validateCandidate(form) {
   const data = formData(form);
-  const missing = [...profileKeys, ...preferenceKeys].filter(key => !data[key]?.trim() || (key === 'skills' && !splitWords(data[key]).length));
+  const missing = profileKeys.filter(key => !data[key]?.trim() || (key === 'skills' && !splitWords(data[key]).length));
   const error = $('#candidate-errors');
   error.hidden = !missing.length;
   error.textContent = missing.length ? '请补充：' + missing.map(key => labels[key]).join('、') : '';
@@ -698,15 +700,13 @@ async function saveCandidate(form) {
   const values = formData(form);
   const source = state.profileDraft || state.candidate;
   const profile = {...source.profile};
-  const preferences = {...source.preferences};
   for (const key of profileKeys) profile[key] = values[key].trim();
   profile.skills = splitWords(values.skills);
   profile.experience_years = Number(values.experience_years);
-  for (const key of preferenceKeys) preferences[key] = values[key].trim();
-  preferences.salary_min = Number(values.salary_min);
-  preferences.salary_max = Number(values.salary_max);
+  profile.salary_min = Number(values.salary_min);
+  profile.salary_max = Number(values.salary_max);
   const revision = state.drafts.candidate?.revision ?? state.candidate.revision;
-  state.candidate = await api('/candidate', {method: 'PUT', body: {revision, profile, preferences}});
+  state.candidate = await api('/candidate', {method: 'PUT', body: {revision, profile}});
   form.dataset.dirty = 'false';
   delete state.drafts.candidate;
   state.profileDraft = null;
@@ -767,10 +767,10 @@ const actions = {
     if (form) form.dataset.dirty = 'false';
     delete state.drafts.candidate;
     state.profileDraft = data;
-    const values = {...data.profile, ...data.preferences, skills: (data.profile.skills || []).join('，')};
+    const values = {...data.profile, skills: (data.profile.skills || []).join('，')};
     values.experience_years = data.profile.experience_years ?? '';
-    values.salary_min = data.preferences.salary_min ?? '';
-    values.salary_max = data.preferences.salary_max ?? '';
+    values.salary_min = data.profile.salary_min ?? '';
+    values.salary_max = data.profile.salary_max ?? '';
     state.drafts.candidate = {values, revision: state.candidate?.revision ?? 0};
     cancelBatch(batch);
     closeDialog();

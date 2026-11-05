@@ -4,9 +4,9 @@
 
 ## 三入口工作台的当前资料流程（2026-11-04）
 
-个人资料统一使用 `GET/PUT /api/candidate`。PUT 提交 `{revision, profile, preferences}`，一次事务确认并保存，修订号仅增加一次。GET 返回这两部分、`revision/confirmed` 及 `missing:[{field,label}]`。
+个人资料统一使用 `GET/PUT /api/candidate`。PUT 提交 `{revision, profile}`，一次事务确认并保存，修订号仅增加一次。GET 返回完整 profile、`revision/confirmed` 及 `missing:[{field,label}]`。
 
-个人核心字段必须完整：`profile.name/education/experience_years/skills/experience/projects`，以及 `preferences.direction/city/commute_origin/salary_min/salary_max`。工作年限允许 0；`experience` 表示工作经历，`projects` 是独立的项目经历。姓名、学历和期望薪资均不是可选项。旧资料缺项时需要重新完善确认，个人资料不能用信息盲区放行。
+个人核心字段必须完整：`profile.name/education/experience_years/skills/experience/projects`，以及 `profile.direction/city/commute_origin/salary_min/salary_max`。工作年限允许 0；`experience` 表示工作经历，`projects` 是独立的项目经历。姓名、学历和期望薪资均不是可选项。旧资料缺项时需要重新完善确认，个人资料不能用信息盲区放行。
 
 简历解析须同时返回画像和求职条件。字段缺失或含义不清时使用 `needs_input` 提问；最终返回草稿，由页面核对后统一保存。应用检查基础完整性，不代替 Agent 理解原文或判断经历真假。
 
@@ -35,12 +35,14 @@
 | `snapshot` | 发起时的画像、条件和所选岗位快照；恢复时仍为这份原始快照 |
 | `state` | 你在上一次响应中返回的内存状态，不落数据库 |
 | `human_input` | 首次为 `None`；恢复时为回答、确认、拒绝或结束决定 |
+| `history` | 同一聊天会话的完整原始消息副本。每条仅含 `role`（`user` 或 `assistant`）和 `content` |
+| `summary` | 应用保存的上一份聊天摘要，首次为 `None`。Agent 使用摘要和 `history[summary.covered_messages:]` 组织上下文 |
 
 `human_input` 包含 `input_id`、`decision`、`text` 和 `data`。`decision` 可取 `answer / confirm / reject / finish`。一次输入只处理一次，旧输入 ID 返回 409。
 
 面试的 `finish` 交给你的入口生成结束报告；其他活动在澄清阶段选择 `finish` 时，由应用直接结束，不再调用入口或生成新报告。
 
-聊天中的 `session_id` 供你实现短期记忆和上下文选择；应用不会自动把全部聊天历史塞入模型。模型配置由你读取，聊天/Embedding 使用 URL、Key、Model 和 OpenAI 兼容接口；百炼专用重排使用独立 HTTP 适配。
+应用按 `session_id` 保存原始聊天，缺少时按 `run_id` 隔离。模型配置由你读取，聊天/Embedding 使用 URL、Key、Model 和 OpenAI 兼容接口；百炼专用重排使用独立 HTTP 适配。
 
 ## 可用的普通存取
 
@@ -49,7 +51,7 @@
 兼容接口沿用原有普通存取语义：列表分页参数由 HTTP 路由检查，直接调用时需传合法的 `offset/limit`；`add_document/delete_document` 只处理元数据，完整上传和删除文件使用资料服务。评估和面试报告应通过 `AgentResponse` 返回，由运行服务校验后保存；直接调用 `save_report` 不会替你执行运行结果校验。
 
 - `services.files.resolve(document_id)`：根据已登记资料 ID 返回受控文件路径；你自行读取、解析或交给本地 MCP。不要把模型任意给出的本机路径当作资料。
-- `services.repository.candidate('profile' / 'preferences')`：读取当前资料，返回 `revision / confirmed / data`。
+- `services.repository.candidate()`：读取当前资料，返回 `revision / confirmed / data`。
 - `job(id)`、`jobs(q='', offset=0, limit=100)`：岗位读取。
 - `documents(kind=None)`、`document(id)`：资料元数据。
 - `records('questions' / 'memories', q='', offset=0, limit=100)`：题目或记忆列表。
@@ -67,10 +69,12 @@
 - `data`：对应界面数据。
 - `pending_input`：等待用户输入时提供。
 - `state`：你需要在本次运行下一轮取回的 JSON 状态，仅内存保存。
+- `summary`：Agent 可写回 `{text, covered_messages}`，覆盖范围从第一条消息数起，仅包括本轮之前的历史。省略表示沿用旧摘要。应用独立追加原文。
+- `usage`：本次调用实际报告的 `input_tokens / output_tokens / total_tokens`。运行查询返回该运行已上报用量的合计；没有用量数据时为 `null`。
 
 | kind | data 的主要字段 |
 | --- | --- |
-| `profile_draft` | `profile`（ProfileData）、`preferences`（Preferences）均必填；可选 `diagnosis` 字符串列表、`notice` |
+| `profile_draft` | `profile`（ProfileData，包含求职条件）必填；可选 `diagnosis` 字符串列表、`notice` |
 | `job_drafts` | `jobs`（JobDraft 列表，含 `blind_spots`）、可选 `diagnosis`、`notice` |
 | `knowledge_result` | `questions`、`coverage`、`notice`；真实入库/索引由你的处理代码完成 |
 | `evaluation_report` | `title/summary/jobs`；每岗包含 `job_id/company/title/match_score/matches/strengths/gaps/recommendation/missing/evidence/commutes` |
@@ -97,10 +101,10 @@
 修改提案：
 
 ```json
-{"status":"needs_input","kind":"chat","data":{"message":"是否更新期望城市？"},"pending_input":{"kind":"proposal","prompt":"期望城市改为杭州","proposal":{"target":"preferences","revision":3,"changes":{"city":"杭州"}}}}
+{"status":"needs_input","kind":"chat","data":{"message":"是否更新期望城市？"},"pending_input":{"kind":"proposal","prompt":"期望城市改为杭州","proposal":{"target":"profile","revision":3,"changes":{"city":"杭州"}}}}
 ```
 
-`target` 支持 `profile / preferences / job`，岗位还要提供 `target_id`。`revision` 必须来自读取时的记录。应用在确认后校验字段和修订号，再保存修改，然后将确认决定交回入口；拒绝不修改。不要在输出提案前自行写入这些待确认内容。修改资料后需重新读取当前值，`command.snapshot` 仍是原始快照。
+`target` 支持 `profile / job`，岗位还要提供 `target_id`。`revision` 必须来自读取时的记录。确认时应用核对字段和修订号并保存，拒绝时保留原资料。聊天提案由应用直接记录决定、回复用户并结束运行，其他动作仍可续接 Agent。不要在提出建议时写入待确认的内容。
 
 ## 事件
 

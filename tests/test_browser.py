@@ -16,7 +16,7 @@ import uvicorn
 
 from backend.app import create_app
 from backend.contracts import AgentResponse
-from backend.demo import JOBS, PREFERENCES, PROFILE, handle as demo_handle
+from backend.demo import JOBS, PROFILE, handle as demo_handle
 
 pytestmark = pytest.mark.browser
 
@@ -47,7 +47,7 @@ def browser_env(settings):
     app = create_app(settings, handler=handler)
     repo = app.state.agent_data_service
     candidate = app.state.candidate_service
-    candidate.confirm(deepcopy(PROFILE), deepcopy(PREFERENCES), 0)
+    candidate.confirm(deepcopy(PROFILE), 0)
 
     class SaveGate(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
@@ -187,7 +187,7 @@ def test_candidate_zero_years_is_saved_atomically(browser_env):
     saved = env['candidate'].get_all()
     assert saved['revision'] == before + 1
     assert saved['profile']['experience_years'] == 0
-    assert saved['preferences']['city'] == '上海'
+    assert saved['profile']['city'] == '上海'
     assert [x for x in env['requests'] if x[0] == 'PUT'] == [('PUT', '/api/candidate')]
 
 
@@ -475,7 +475,7 @@ def test_candidate_gate_and_failed_extraction_are_explicit(browser_env):
     env, page = browser_env, browser_env['page']
     a, _ = seed_jobs(env)
     current = env['candidate'].get_all()
-    env['repo'].update_candidate('profile', current['profile'], current['revision'], False)
+    env['repo'].update_candidate(current['profile'], current['revision'], False)
     visit(env)
     expect(row(page, a).get_by_role('button', name='评估', exact=True)).to_be_disabled()
     expect(row(page, a).get_by_role('button', name='模拟面试', exact=True)).to_be_disabled()

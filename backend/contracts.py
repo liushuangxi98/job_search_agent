@@ -1,5 +1,6 @@
 """应用与 Agent 的数据契约；只定义输入输出，不包含提示词、推理或算法。"""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import json
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -64,7 +65,7 @@ from .schemas import Payload, JobData, Preferences, ProfileData, QuestionData
 #   场景：用户补充资料，或追问当前岗位、报告。
 #   输入：input.text 为消息，context 标识关联对象。
 #   回答：chat；提出资料修改时使用 chat + needs_input。
-#   确认：应用先保存提案再续接 Agent，收到 confirm 不要重复修改；reject 不保存。
+#   确认：应用处理聊天提案并给出回执；仅补充问题的回答会续接聊天 Agent。
 #
 # 通用规则：
 #   上述为业务推荐映射，运行服务不强制校验 action 与 kind 是否配对。
@@ -119,6 +120,19 @@ class RunInput(Payload):
 # ---------------------------------------------------------------------------
 
 
+class TokenUsage(Payload):
+    """模型服务实际报告的 token 数，用于统计；未提供用量时整个 usage 为 None。"""
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+
+
+class ChatSummary(Payload):
+    """text 是 Agent 生成的摘要，covered_messages 是它覆盖的原始消息条数。"""
+    text: str = Field(min_length=1)
+    covered_messages: int = Field(gt=0)
+
+
 class AgentResponse(Payload):
     """Agent 交回的结果；kind 决定 data 结构，state 只用于同一运行的内存续接。"""
 
@@ -166,6 +180,12 @@ class AgentResponse(Payload):
     #   示例：{"round": 1, "answers": []}。
     #   应用仅在内存中保存并通过 command.state 交回；本字段不是数据库持久化或完整聊天记忆。
     state: dict = Field(default_factory=dict)
+
+    # 本次 Agent 调用的模型用量；应用在运行内累计，固定回执不产生用量。
+    usage: TokenUsage | None = None
+
+    # 成功后用此摘要更新会话；None 表示沿用已有摘要，原文始终保留。
+    summary: ChatSummary | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -604,6 +624,20 @@ class AgentCommand:
     #       "text": "我的回答", "data": {}
     #     }
     human_input: dict | None = None
+
+    # 同一会话已接受的原始聊天消息副本，仅含 role（user / assistant）和 content。
+    history: list[dict[str, str]] = field(default_factory=list)
+    summary: ChatSummary | None = None
+
+    @property
+    def chat_text(self) -> str:
+        """本轮用户原话。人工补充可以单独提交结构化数据，模型与历史使用同一份文字。"""
+        if self.human_input is None:
+            return self.input['text']
+        text = self.human_input.get('text', '')
+        if self.human_input.get('data'):
+            text += '\n补充信息：' + json.dumps(self.human_input['data'], ensure_ascii=False)
+        return text
 
 
 @dataclass
