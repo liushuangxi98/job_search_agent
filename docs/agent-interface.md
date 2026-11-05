@@ -6,9 +6,9 @@
 
 个人资料统一使用 `GET/PUT /api/candidate`。PUT 提交 `{revision, profile}`，一次事务确认并保存，修订号仅增加一次。GET 返回完整 profile、`revision/confirmed` 及 `missing:[{field,label}]`。
 
-个人核心字段必须完整：`profile.name/education/experience_years/skills/experience/projects`，以及 `profile.direction/city/commute_origin/salary_min/salary_max`。工作年限允许 0；`experience` 表示工作经历，`projects` 是独立的项目经历。姓名、学历和期望薪资均不是可选项。旧资料缺项时需要重新完善确认，个人资料不能用信息盲区放行。
+个人核心字段必须完整：`profile.name/education/major/experience_years/skills/experience/projects`，以及 `profile.direction/city/commute_origin/salary_min/salary_max`。工作年限允许 0；`experience` 表示工作经历，`projects` 是独立的项目经历。姓名、学历和期望薪资均不是可选项。旧资料缺项时需要重新完善确认，个人资料不能用信息盲区放行。
 
-简历解析须同时返回画像和求职条件。字段缺失或含义不清时使用 `needs_input` 提问；最终返回草稿，由页面核对后统一保存。应用检查基础完整性，不代替 Agent 理解原文或判断经历真假。
+简历解析须同时返回画像和求职条件。学历 `education` 与大学专业 `major` 分开提取；缺少专业时请用户补充。个人简介 `summary` 和出行偏好 `commute_mode` 可手动编辑。原文依据 `evidence` 由解析程序生成，在草稿和画像页只读展示。字段缺失或含义不清时使用 `needs_input` 提问；最终返回草稿，由页面核对后统一保存。
 
 岗位缺少 `company/title/city/address/jd_text/salary` 时，必须补齐或在 `blind_spots` 中记录招聘方未披露的说明。例如 `{"address":"招聘方尚未提供具体办公地点"}`；`salary` 同时对应薪资上下限。用户须在入库前确认盲区。未知文本可用空字符串，未知薪资用 `null`，不能编造或填零。岗位对象提供 `ready/missing` 供界面在操作入口提示完善。
 

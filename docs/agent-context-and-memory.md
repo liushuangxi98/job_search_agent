@@ -1,0 +1,367 @@
+# 求职决策 Agent：上下文与记忆设计
+
+> 更新：2026-11-03  
+> 范围：Agent 侧如何组装上下文、保存短期记忆和长期记忆。  
+> 说明：这是设计说明，不改变现有后端契约；Agent 代码由你实现。
+
+---
+
+## 0. 一句话总结
+
+> **上下文是“这次喂给模型什么”，记忆是“跨调用留下什么”，`state` 是“本次暂停后怎么继续”，`snapshot` 是“开始时的冻结输入”。**
+
+---
+
+## 1. 四个概念先分清
+
+| 名称 | 生命周期 | 存在哪 | 用途 |
+| --- | --- | --- | --- |
+| `snapshot` | 一次运行，冻结 | 后端内存 | 本次任务的输入 |
+| `state` | 一次运行，多轮 | 后端内存 | 暂停后继续的草稿 |
+| 短期记忆 | 一个浏览器会话 | Agent 进程内存 | 聊天最近几轮 |
+| 长期记忆 | 跨运行、跨页面 | MySQL `memories` | 确认过的偏好、薄弱项 |
+
+补充：
+
+- `snapshot` 在运行开始时就固定，用户中途修改资料不会改变它；
+- `state` 只属于同一次运行，服务重启后丢失；
+- 短期记忆只在当前服务进程内，刷新页面或重启服务会丢；
+- 长期记忆存 MySQL，重启后仍存在。
+
+---
+
+## 2. 项目已经提供了哪些原料
+
+### 2.1 `command`
+
+```python
+command.context        # type、id、session_id
+command.snapshot       # profile、preferences、jobs、context_job、context_report、document
+command.state          # 本次运行上一轮返回的状态
+command.human_input    # 用户回答、确认、拒绝、结束
+```
+
+说明：
+
+- `command.context.type` 可能是 `job`、`report` 或页面名；
+- `context.id` 只有当前对象是岗位或报告时才存在；
+- `session_id` 由前端生成，用于聊天短期记忆；
+- `context_job` / `context_report` 只有前端带了对应 `type` 和 `id` 时才会出现在快照里。
+
+### 2.2 `services`
+
+```python
+services.repository.candidate("profile")
+services.repository.candidate("preferences")
+services.repository.records("memories")
+services.repository.records("questions")
+services.repository.job(id)
+services.repository.jobs(...)
+services.repository.reports()
+services.repository.report(id)
+services.repository.save_record("memories", data)
+services.repository.delete_record("memories", key)
+services.files.resolve(document_id)
+```
+
+注意：
+
+- `services.repository` 实际是 `AgentDataService`，不是数据库 Session；
+- 每次方法调用自己开短事务；
+- Agent 不能执行任意 SQL，也不能读任意本机路径。
+
+---
+
+## 3. 每种 action 的上下文策略
+
+不要把所有东西都塞给模型。
+
+| action | 建议带 | 不建议带 |
+| --- | --- | --- |
+| `parse_resume` | 简历正文、现有画像 | 聊天历史 |
+| `extract_jobs` | OCR 文本或招聘原文 | 聊天历史 |
+| `index_knowledge` | MD 原文、现有题库摘要 | 聊天历史 |
+| `evaluate` | `snapshot.profile`、`preferences`、`jobs`、证据 | 聊天历史 |
+| `interview` | `snapshot.profile`、当前岗位、`state.answers`、题库检索结果 | 全量聊天历史 |
+| `chat` | 当前岗位/报告、最近几轮聊天、相关长期记忆、画像/条件摘要 | 全部历史、全部记忆 |
+
+特别说明：
+
+- **评估**不要带聊天历史，避免影响评分；
+- **面试**主要靠 `state` 保存已答内容，不要靠聊天历史；
+- **聊天**才需要短期对话上下文；
+- **RAG 检索**属于知识上下文，和用户记忆分开管理，不要把题库内容写进 `memories`。
+
+---
+
+## 4. 短期记忆
+
+### 4.1 Key 设计
+
+用 `session_id + 当前对象` 作为 key：
+
+```python
+def session_key(command):
+    ctx = command.context or {}
+    return (
+        ctx.get("session_id", ""),
+        ctx.get("type", ""),
+        ctx.get("id") or "",
+    )
+```
+
+为什么带上 `type/id`：
+
+- 同一个浏览器会话里，A 岗位和 B 岗位的聊天不应混；
+- 页面级聊天和岗位级聊天也应分开；
+- 避免把 A 岗位的信息带进 B 岗位。
+
+### 4.2 最小实现
+
+```python
+from collections import defaultdict, deque
+
+# 每个会话最多保留 10 轮
+_short_term = defaultdict(lambda: deque(maxlen=10))
+
+
+def recent_turns(command):
+    return list(_short_term[session_key(command)])
+
+
+def remember_turn(command, user_text, assistant_text):
+    _short_term[session_key(command)].append({
+        "user": user_text,
+        "assistant": assistant_text,
+    })
+```
+
+调用时机：
+
+- 处理 `chat` 时先读 `recent_turns(command)`；
+- 返回最终回复前，用 `remember_turn(...)` 记录本轮；
+- 不要记录未确认的中间推理、完整工具响应或密钥。
+
+### 4.3 生命周期与限制
+
+- 只保存在当前服务进程；
+- 服务重启丢失；
+- 前端刷新会生成新的 `session_id`，聊天历史也会断；
+- 多个标签页有不同 `session_id`，不会串话；
+- 需要跨刷新保留时，只能用长期记忆或数据库，不能依赖这个字典。
+
+---
+
+## 5. 长期记忆
+
+### 5.1 存储结构
+
+MySQL `memories` 表的 `data` 字段：
+
+```python
+{
+    "content": "用户更偏好远程或混合办公",
+    "category": "preference",   # preference / profile / weakness
+    "evidence": "用户在聊天中明确说明",
+}
+```
+
+### 5.2 读取
+
+```python
+items = services.repository.records("memories", limit=50)["items"]
+memories = [item["data"] for item in items]
+```
+
+按当前任务筛选：
+
+- 聊天：偏好、画像、薄弱项都可以考虑；
+- 面试：优先薄弱项；
+- 评估：画像和条件已经在 `snapshot` 里，不需要重复带入记忆。
+
+### 5.3 写入
+
+新增：
+
+```python
+services.repository.save_record("memories", {
+    "content": "...",
+    "category": "weakness",
+    "evidence": "面试第 3 题回答缺少异常处理",
+})
+```
+
+更新已有记录：
+
+```python
+services.repository.save_record("memories", data, key=memory_id)
+```
+
+### 5.4 什么该进长期记忆
+
+适合：
+
+- 用户明确说“记住……”的偏好；
+- 已完成面试报告里的薄弱项，带答题证据；
+- 画像/条件里没有、但反复有用的事实。
+
+不适合：
+
+- 整段聊天记录；
+- 临时任务状态；
+- 密码、Key、完整模型响应；
+- 和画像/条件重复的内容。
+
+### 5.5 和画像、条件、提案的区别
+
+| 内容 | 存哪 | 更新方式 |
+| --- | --- | --- |
+| 姓名、简介、技能、经历 | `candidate.profile` | 用户确认画像 |
+| 城市、薪资、通勤 | `candidate.preferences` | 用户确认条件，或聊天提案 |
+| 岗位 JD、地址 | `jobs` | 岗位编辑，或聊天提案 |
+| 长期偏好、薄弱项 | `memories` | Agent 提炼并保存，用户可编辑/删除 |
+
+不要：
+
+- 把“期望城市”再抄一份到 `memories`；
+- 绕过提案直接修改画像/条件；
+- 把未确认的聊天内容直接当成长期事实。
+
+建议：
+
+- 偏好类修改优先走 `proposal`，由用户确认后写入画像/条件；
+- 薄弱项可以在面试报告生成后保存，并带上题目和回答证据；
+- 用户可以在前端“已确认的记忆”里编辑、删除。
+
+---
+
+## 6. 上下文装配
+
+建议统一放在 `career_agent/memory.py`，不要每个业务模块各拼一套。
+
+### 6.1 `build_context`
+
+```python
+def build_context(command, services):
+    profile = services.repository.candidate("profile")
+    preferences = services.repository.candidate("preferences")
+
+    memories = [
+        item["data"]
+        for item in services.repository.records("memories", limit=50)["items"]
+    ]
+
+    return {
+        "profile": profile["data"],
+        "preferences": preferences["data"],
+        "current_job": command.snapshot.get("context_job"),
+        "current_report": command.snapshot.get("context_report"),
+        "memories": memories,
+        "recent_chat": recent_turns(command),
+        "state": command.state,
+    }
+```
+
+### 6.2 各模块按需取用
+
+```python
+# chat.py
+context = build_context(command, services)
+
+# evaluate.py
+context = {
+    "profile": command.snapshot["profile"]["data"],
+    "preferences": command.snapshot["preferences"]["data"],
+    "jobs": command.snapshot["jobs"],
+}
+
+# interview.py
+context = {
+    "profile": command.snapshot["profile"]["data"],
+    "job": command.snapshot["jobs"][0],
+    "answers": command.state.get("answers", []),
+}
+```
+
+### 6.3 上下文预算
+
+建议在 `career_agent/config.py` 中设置：
+
+```python
+CONTEXT_MAX_CHAT_TURNS = 10
+CONTEXT_MAX_MEMORIES = 30
+CONTEXT_MAX_CHARS = 12000
+```
+
+超长时按顺序裁剪：
+
+1. 旧聊天；
+2. 低相关长期记忆；
+3. 非当前岗位的材料；
+4. 当前用户消息、当前岗位、当前画像永远保留。
+
+---
+
+## 7. 不要这样做
+
+1. **不要把全部聊天历史塞进模型**
+   会超 token，也会把无关岗位的信息带进来。
+
+2. **不要用 `state` 存跨运行记忆**
+   `state` 只属于当前运行，重启就没了。
+
+3. **不要把 `snapshot` 当最新数据**
+   它是运行开始时的冻结输入；用户中途确认修改后，要重新读 `services.repository`。
+
+4. **不要把长期记忆当数据库备份**
+   只存提炼过、用户认可、有证据的事实。
+
+5. **不要跨用户/跨岗位混用 `session_id`**
+   聊天要限定在当前对象；A 岗位的对话不要带进 B 岗位。
+
+6. **不要把 RAG 题库内容写进 `memories`**
+   题库属于知识检索，用户事实属于记忆，二者分开。
+
+7. **不要在短期记忆里放密钥、整张图片、完整模型响应**
+   这些不应进入上下文，也不应被模型看到。
+
+---
+
+## 8. 最小落地顺序
+
+1. 写 `career_agent/memory.py`：短期会话字典 + `build_context()`；
+2. `chat.py` 接入最近 10 轮 + 当前岗位/报告；
+3. 面试用 `state.answers`，不要用聊天历史；
+4. 面试结束后把薄弱项写入 `memories`；
+5. 再考虑检索长期记忆中与当前问题相关的条目；
+6. 最后再做摘要、向量化或更复杂的记忆排序。
+
+---
+
+## 9. 与现有代码的对应
+
+| 文件 | 作用 |
+| --- | --- |
+| `backend/contracts.py` | `AgentCommand` 的 `context/snapshot/state/human_input`，`AgentResponse` |
+| `backend/services/run_service.py` | 组装 `command`、调用 Agent、保存报告 |
+| `backend/services/agent_data_service.py` | Agent 的数据访问适配器 |
+| `backend/services/candidate_service.py` | 画像和条件读取/更新 |
+| `backend/services/knowledge_service.py` | 题目和记忆存取 |
+| `backend/services/report_service.py` | 历史报告读取 |
+| `backend/schemas.py` | `MemoryData` 等字段定义 |
+| `docs/agent-interface.md` | Agent 接入约定 |
+| `frontend/app.js` | `context()`、`session_id`、聊天和报告页状态 |
+
+---
+
+## 10. 验收清单
+
+- [ ] 聊天能读取最近几轮，但不会带全部历史；
+- [ ] 不同岗位的聊天不会互相串；
+- [ ] 面试上下文来自 `state.answers`，不依赖聊天历史；
+- [ ] 评估上下文来自 `snapshot`，不夹带聊天记录；
+- [ ] 长期记忆只保存确认过、有证据的事实；
+- [ ] 画像/条件修改走提案，不绕过用户确认；
+- [ ] 服务重启后，长期记忆仍在，短期聊天历史丢失；
+- [ ] 上下文字符数有上限，超长时优先裁剪旧聊天；
+- [ ] 记忆里没有密钥、完整模型响应和整张图片。

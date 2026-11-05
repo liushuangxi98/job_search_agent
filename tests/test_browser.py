@@ -17,6 +17,7 @@ import uvicorn
 from backend.app import create_app
 from backend.contracts import AgentResponse
 from backend.demo import JOBS, PROFILE, handle as demo_handle
+from backend.schemas import ProfileData
 
 pytestmark = pytest.mark.browser
 
@@ -176,6 +177,62 @@ def test_chat_preserves_unsaved_profile_form_and_session(browser_env):
     assert page.evaluate('({local: localStorage.length, session: sessionStorage.length})') == {'local': 0, 'session': 0}
 
 
+def test_profile_fields_survive_confirmation_refresh_and_draft_adoption(browser_env, monkeypatch):
+    env, page = browser_env, browser_env['page']
+    original = env['candidate'].get_all()
+    draft_evidence = [{'text': '参与自动化项目', 'document_id': 'resume_dom', 'locator': '第 2 页',
+                       'metadata': {'pages': [2, 3]}}]
+    monkeypatch.setitem(PROFILE, 'evidence', draft_evidence)
+
+    visit(env, 'resume')
+    form = page.locator('#profile-form')
+    controls = form.locator('input, select, textarea, [contenteditable=true]')
+    names = controls.evaluate_all('(nodes) => nodes.map(n => n.name)')
+    assert len(names) == 14
+    assert set(names) == ProfileData.model_fields.keys() - {'evidence'}
+    assert {'headline', 'commute_limit_minutes'}.isdisjoint(names)
+    expect(form).to_contain_text('暂无提取依据')
+    major = form.get_by_label('大学专业')
+    summary = form.get_by_label('个人简介')
+    mode = form.get_by_label('出行偏好')
+    expect(major).to_have_attribute('required', '')
+    major.fill('软件工程')
+    summary.fill('负责测试平台研发')
+    mode.select_option(label='驾车')
+    save = form.get_by_role('button', name='保存并确认画像与条件')
+    save.click()
+    expect(page.locator('#toast')).to_contain_text('一起确认保存')
+    page.reload()
+    expect(major).to_have_value('软件工程')
+    expect(summary).to_have_value('负责测试平台研发')
+    expect(mode).to_have_value('driving')
+
+    page.get_by_role('button', name='查看示例画像').click()
+    preview = page.locator('#editor')
+    for label, value in [('大学专业', PROFILE['major']), ('个人简介', PROFILE['summary']),
+                         ('出行偏好', '公共交通')]:
+        expect(preview.locator('dt', has_text=label).locator('+ dd')).to_have_text(value)
+    expect(preview).to_contain_text('参与自动化项目 resume_dom · 第 2 页')
+    preview.get_by_role('button', name='填入画像表单').click()
+    expect(major).to_have_value(PROFILE['major'])
+    expect(summary).to_have_value(PROFILE['summary'])
+    expect(mode).to_have_value('public_transit')
+    expect(form).to_contain_text('参与自动化项目 resume_dom · 第 2 页')
+    assert env['candidate'].get_all()['revision'] == original['revision'] + 1
+    summary.fill('核对后补充的简介')
+    with page.expect_request(lambda req: req.method == 'PUT' and req.url.endswith('/api/candidate')) as saved:
+        save.click()
+    expected = {**PROFILE, 'summary': '核对后补充的简介'}
+    assert saved.value.post_data_json['profile'] == expected
+    expect(page.locator('#toast')).to_contain_text('一起确认保存')
+    page.reload()
+    expect(summary).to_have_value(expected['summary'])
+    expect(form).to_contain_text('参与自动化项目 resume_dom · 第 2 页')
+    page.get_by_text('原始提取依据', exact=True).click()
+    assert json.loads(page.locator('details[open] pre').inner_text()) == draft_evidence
+    assert env['candidate'].get_all()['profile'] == expected
+
+
 def test_candidate_zero_years_is_saved_atomically(browser_env):
     env, page = browser_env, browser_env['page']
     visit(env, 'resume')
@@ -191,7 +248,7 @@ def test_candidate_zero_years_is_saved_atomically(browser_env):
     assert [x for x in env['requests'] if x[0] == 'PUT'] == [('PUT', '/api/candidate')]
 
 
-@pytest.mark.parametrize('field_name', ['name', 'education', 'experience_years', 'skills', 'experience',
+@pytest.mark.parametrize('field_name', ['name', 'education', 'major', 'experience_years', 'skills', 'experience',
                                         'projects', 'direction', 'city', 'commute_origin', 'salary_min', 'salary_max'])
 def test_candidate_required_fields_block_before_request(browser_env, field_name):
     env, page = browser_env, browser_env['page']

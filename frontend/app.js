@@ -7,15 +7,18 @@ const pages = {
   jobs: ['岗位池', '我的机会 / 逐个了解，认真选择'],
 };
 const labels = {
-  name: '姓名', education: '学历', experience_years: '工作年限', skills: '技能',
+  name: '姓名', education: '学历', major: '大学专业', experience_years: '工作年限', skills: '技能',
+  summary: '个人简介', commute_mode: '出行偏好',
   experience: '工作经历', projects: '项目经历', direction: '求职方向', city: '城市',
   commute_origin: '通勤起点', salary_min: '月薪下限', salary_max: '月薪上限',
   company: '公司', title: '职位', address: '办公地址', jd_text: '岗位描述', salary: '薪资',
 };
-const profileKeys = [
-  'name', 'education', 'experience_years', 'skills', 'experience', 'projects',
+const requiredProfileKeys = [
+  'name', 'education', 'major', 'experience_years', 'skills', 'experience', 'projects',
   'direction', 'city', 'commute_origin', 'salary_min', 'salary_max',
 ];
+const editableProfileKeys = [...requiredProfileKeys, 'summary', 'commute_mode'];
+const commuteModes = {public_transit: '公共交通', driving: '驾车'};
 const jobKeys = ['company', 'title', 'city', 'address', 'jd_text', 'salary'];
 const actionNames = {parse_resume: '简历整理', extract_jobs: '岗位提取', index_knowledge: '题库整理', evaluate: '岗位评估', interview: '模拟面试', chat: '聊天'};
 const state = {
@@ -113,13 +116,22 @@ function fileRows(items, action) {
 function uploadBox(kind, title, text) {
   return `<div class="upload-zone"><div class="upload-symbol" aria-hidden="true">↥</div><h3>${esc(title)}</h3><p>${esc(text)}</p>${button('选择文件', 'upload', `data-kind="${kind}" data-start`, 'secondary')}</div>`;
 }
+function profileEvidence(items) {
+  const entries = items.map(item => {
+    const source = [item.document_id, item.locator].filter(Boolean).join(' · ');
+    return `<li class="prose">${esc(item.text ?? (source ? '' : JSON.stringify(item)))} ${esc(source)}</li>`;
+  });
+  return `<h3 class="form-section">提取依据</h3>${entries.length ? `<ul>${entries.join('')}</ul>` : '<p class="caption">暂无提取依据。</p>'}`;
+}
 function candidateFields(profile) {
   const required = {required: true};
   const salary = {required: true, type: 'number', max: 10000000};
   return `<div class="form-grid">
     ${field('姓名', 'name', profile.name, {...required, maxLength: 100})}
     ${field('学历', 'education', profile.education, {...required, maxLength: 2000})}
-    ${field('工作年限', 'experience_years', profile.experience_years ?? '', {...required, type: 'number', min: 0, step: 'any', hint: '应届或暂无工作经验填 0'})}
+    ${field('大学专业', 'major', profile.major, {...required, maxLength: 200})}
+    ${field('个人简介', 'summary', profile.summary, {area: true, full: true, maxLength: 10000})}
+    ${field('工作年限', 'experience_years', profile.experience_years ?? '', {...required, type: 'number', min: 0, max: 80, step: 'any', hint: '应届或暂无工作经验填 0'})}
     ${field('技能', 'skills', (profile.skills || []).join('，'), {...required, hint: '用逗号或换行分隔'})}
     ${field('工作经历', 'experience', profile.experience, {...required, area: true, full: true, maxLength: 20000, hint: '暂无工作经历请如实填写'})}
     ${field('项目经历', 'projects', profile.projects, {...required, area: true, full: true, maxLength: 20000})}
@@ -127,9 +139,10 @@ function candidateFields(profile) {
     ${field('求职方向', 'direction', profile.direction, {...required, maxLength: 200})}
     ${field('期望城市', 'city', profile.city, {...required, maxLength: 100})}
     ${field('通勤起点', 'commute_origin', profile.commute_origin, {...required, full: true, maxLength: 300, hint: '城市及具体地址，用于查询公交与驾车路线'})}
+    <label class="field"><span>出行偏好</span><select name="commute_mode">${Object.entries(commuteModes).map(([key, text]) => `<option value="${key}" ${key === profile.commute_mode ? 'selected' : ''}>${text}</option>`).join('')}</select></label>
     ${field('期望月薪下限（元）', 'salary_min', profile.salary_min ?? '', salary)}
     ${field('期望月薪上限（元）', 'salary_max', profile.salary_max ?? '', salary)}
-  </div>`;
+  </div>${profileEvidence(profile.evidence)}`;
 }
 function diagnosisHTML(data) {
   return `<div class="tip">${esc(data.notice || '请人工核对；尚未确认保存。')}${(data.diagnosis || []).length ? `<ul>${data.diagnosis.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>`;
@@ -542,10 +555,10 @@ function reviewResult(run) {
   const kind = run.result?.kind;
   if (kind === 'profile_draft') {
     state.modal = {kind, data, batch: state.runBatches.get(run.id)};
-    openDialog('核对简历与条件草稿', diagnosisHTML(data) + `<dl class="job-meta">${profileKeys.map(key => {
-      const value = data.profile[key];
+    openDialog('核对简历与条件草稿', diagnosisHTML(data) + `<dl class="job-meta">${editableProfileKeys.map(key => {
+      const value = key === 'commute_mode' ? commuteModes[data.profile[key]] : data.profile[key];
       return `<dt>${esc(labels[key])}</dt><dd class="prose">${esc(Array.isArray(value) ? value.join('、') : value ?? '待补充')}</dd>`;
-    }).join('')}</dl>`, button('填入画像表单', 'use-profile-draft'));
+    }).join('')}</dl>` + profileEvidence(data.profile.evidence), button('填入画像表单', 'use-profile-draft'));
   } else if (kind === 'job_drafts') {
     let batch = state.runBatches.get(run.id);
     if (batch?.cancelled) { toast('该批次已结束，请重新提取需要的资料。'); return; }
@@ -680,12 +693,18 @@ async function saveQuestions() {
 }
 function validateCandidate(form) {
   const data = formData(form);
-  const missing = profileKeys.filter(key => !data[key]?.trim() || (key === 'skills' && !splitWords(data[key]).length));
+  const missing = requiredProfileKeys.filter(key => !data[key]?.trim() || (key === 'skills' && !splitWords(data[key]).length));
   const error = $('#candidate-errors');
   error.hidden = !missing.length;
   error.textContent = missing.length ? '请补充：' + missing.map(key => labels[key]).join('、') : '';
   if (missing.length) {
     form.elements[missing[0]].focus();
+    return false;
+  }
+  if (splitWords(data.skills).length > 100) {
+    error.hidden = false;
+    error.textContent = '技能最多填写 100 项。';
+    form.elements.skills.focus();
     return false;
   }
   if (Number(data.salary_min) > Number(data.salary_max)) {
@@ -700,7 +719,7 @@ async function saveCandidate(form) {
   const values = formData(form);
   const source = state.profileDraft || state.candidate;
   const profile = {...source.profile};
-  for (const key of profileKeys) profile[key] = values[key].trim();
+  for (const key of editableProfileKeys) profile[key] = values[key].trim();
   profile.skills = splitWords(values.skills);
   profile.experience_years = Number(values.experience_years);
   profile.salary_min = Number(values.salary_min);
