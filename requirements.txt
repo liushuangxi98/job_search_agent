@@ -6,3 +6,5 @@ SQLAlchemy==2.0.55
 PyMySQL[rsa]==1.2.3
 python-multipart==0.0.32
 langchain_openai==1.7.3
+pypdf==6.20.0
+python-docx==1.2.0

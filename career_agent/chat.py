@@ -41,7 +41,7 @@ async def reply(command, emit) -> AgentResponse:
         messages.extend(command.history[command.summary.covered_messages:])
     else:
         messages.extend(command.history)
-    messages.append({'role': 'user', 'content': command.chat_text})
+    messages.append({'role': 'user', 'content': command.human_input['text']})
 
     await emit('status', '正在结合当前资料生成回答')
     # DeepSeek 指定工具时需要关闭思考模式。工具参数承载决策，raw 保留用量。
@@ -60,12 +60,18 @@ async def reply(command, emit) -> AgentResponse:
 
 def _build_response(decision: ChatDecision, usage: dict | None) -> AgentResponse:
     """把模型决策转换为普通回答、补充问题或修改提案；只组装结果，不执行修改。"""
-    pending = None
-    if decision.msg_kind != 'reply':
-        pending = PendingInput(kind=decision.msg_kind, prompt=decision.message, proposal=decision.proposal)
+    if decision.msg_kind == 'reply':
+        return AgentResponse(
+            status='completed', kind='chat', data={'message': decision.message}, usage=usage,
+        )
+    elif decision.msg_kind == 'question':
+        return AgentResponse(
+            status='needs_input', kind='chat', data={'message': decision.message}, usage=usage,
+            pending_input=PendingInput(kind='question', prompt=decision.message).model_dump(),
 
-    return AgentResponse(
-        status='needs_input' if pending else 'completed', kind='chat',
-        data={'message': decision.message}, usage=usage,
-        pending_input=pending.model_dump(exclude_none=True) if pending else None,
-    )
+        )
+    else:
+        return AgentResponse(
+            status='needs_input', kind='chat', data={'message': decision.message}, usage=usage,
+            pending_input=PendingInput(kind='proposal', prompt=decision.message, proposal=decision.proposal).model_dump())
+
