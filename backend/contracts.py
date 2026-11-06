@@ -616,7 +616,8 @@ class AgentCommand:
     #     }
     human_input: dict | None = None
 
-    # 同一会话已接受的原始聊天消息副本，仅含 role（user / assistant）和 content。
+    # 同一会话、同一 action 的历史副本，仅含 role（user / assistant）和 content。
+    # 所有动作均提供；本轮输入另外通过 input / human_input 传递。
     history: list[dict[str, str]] = field(default_factory=list)
     summary: ChatSummary | None = None
 
@@ -625,9 +626,11 @@ class AgentCommand:
 
     @property
     def chat_text(self) -> str:
-        """本轮用户原话。人工补充可以单独提交结构化数据，模型与历史使用同一份文字。"""
+        """本轮输入文字；上传和任务启动保存输入参数 JSON，原文件仍由文件服务读取。"""
         if self.human_input is None:
-            return self.input['text']
+            return self.input.get('text') or json.dumps(self.input, ensure_ascii=False)
+        if self.human_input['decision'] != 'answer':
+            return {'confirm': '确认修改', 'reject': '拒绝修改', 'finish': '结束本次'}[self.human_input['decision']]
         text = self.human_input.get('text', '')
         if self.human_input.get('data'):
             text += '\n补充信息：' + json.dumps(self.human_input['data'], ensure_ascii=False)

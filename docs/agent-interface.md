@@ -35,15 +35,15 @@
 | `snapshot` | 发起时的画像、条件和所选岗位快照；恢复时仍为这份原始快照 |
 | `state` | 你在上一次响应中返回的内存状态，不落数据库 |
 | `human_input` | 首次为 `None`；恢复时为回答、确认、拒绝或结束决定 |
-| `history` | 同一聊天会话的完整原始消息副本。每条仅含 `role`（`user` 或 `assistant`）和 `content` |
-| `summary` | 应用保存的上一份聊天摘要，首次为 `None`。Agent 使用摘要和 `history[summary.covered_messages:]` 组织上下文 |
-| `previous_usage` | 上一次模型响应的用量，首次或未上报时为 `None`。聊天按同一会话传递，其他动作按同一运行传递 |
+| `history` | 同一标签页、同一 action 的完整历史副本。每条仅含 `role`（`user` 或 `assistant`）和 `content` |
+| `summary` | 当前 action 的上一份摘要，首次为 `None`。Agent 使用摘要和 `history[summary.covered_messages:]` 组织上下文 |
+| `previous_usage` | 上一次模型响应的用量，首次或未上报时为 `None`。所有动作均按同一会话、同一 action 传递 |
 
 `human_input` 包含 `input_id`、`decision`、`text` 和 `data`。`decision` 可取 `answer / confirm / reject / finish`。一次输入只处理一次，旧输入 ID 返回 409。
 
 面试的 `finish` 交给你的入口生成结束报告；其他活动在澄清阶段选择 `finish` 时，由应用直接结束，不再调用入口或生成新报告。
 
-应用按 `session_id` 保存原始聊天，缺少时按 `run_id` 隔离。模型配置由你读取，聊天/Embedding 使用 URL、Key、Model 和 OpenAI 兼容接口；百炼专用重排使用独立 HTTP 适配。
+应用按 `(session_id, action)` 保存历史，缺少会话标识时用 `run_id` 替代。相同 action 再次启动沿用历史，暂不自动清空。所有动作均收到 `command.history`，本轮输入通过 `input / human_input` 单独传递。上传和任务启动记为输入参数 JSON，追问记为 prompt，最终结构化结果记为 JSON 文本。模型配置由你读取，聊天/Embedding 使用 URL、Key、Model 和 OpenAI 兼容接口；百炼专用重排使用独立 HTTP 适配。
 
 ## 可用的普通存取
 

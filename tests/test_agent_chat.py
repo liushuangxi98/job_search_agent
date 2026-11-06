@@ -190,7 +190,7 @@ def test_message_kind_controls_flow_and_reuses_one_message(service, model_stub, 
     run = run_chat(service, command())
     assert run.status == status
     assert run.result['data']['message'] == message
-    assert service.chat_sessions['session-a'].messages[-1] == {'role': 'assistant', 'content': message}
+    assert service.chat_sessions[('session-a', 'chat')].messages[-1] == {'role': 'assistant', 'content': message}
     if pending_kind:
         assert run.pending_input['kind'] == pending_kind
         assert run.pending_input['prompt'] == message
@@ -262,7 +262,7 @@ def test_invalid_model_output_fails_explicitly(service, monkeypatch, content):
         return content
     install_model(monkeypatch, generate)
     assert run_chat(service, command('非法输出的问题')).status == 'failed'
-    assert service.chat_sessions['session-a'].messages == []
+    assert service.chat_sessions[('session-a', 'chat')].messages == []
 
 
 def test_complete_history_is_passed_to_model(service, model_stub):
@@ -409,7 +409,7 @@ def test_backend_confirms_once_and_rejects_without_saving(settings, model_stub):
         assert wait_run(client, run['id'])['status'] == 'completed'
         assert client.get('/api/profile').json() == after
         assert len(calls) == 2
-        session = client.app.state.run_service.chat_sessions['integration']
+        session = client.app.state.run_service.chat_sessions[('integration', 'chat')]
         assert session.messages[-2:] == [
             {'role': 'user', 'content': '拒绝修改'},
             {'role': 'assistant', 'content': '已拒绝这次修改，资料保持原样。'},

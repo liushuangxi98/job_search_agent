@@ -21,7 +21,7 @@ from .material_validation import candidate_missing, job_missing
 
 @dataclass
 class ChatSession:
-    """同一标签页共享的原文和 Agent 写回的摘要，应用重启后清空。"""
+    """同一标签页、同一 action 的原文和摘要，应用重启后清空。"""
     messages: list[dict[str, str]] = field(default_factory=list)
     summary: ChatSummary | None = None
     last_usage: dict | None = None
@@ -68,7 +68,7 @@ class RunService:
         self.handler = handler
         self.services = ApplicationServices(repository, files)
         self.runs = {}
-        self.chat_sessions: dict[str, ChatSession] = {}
+        self.chat_sessions: dict[tuple[str, str], ChatSession] = {}
         self.lock = asyncio.Lock()
         self.log_dir = settings.data_dir / 'logs'
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -269,6 +269,7 @@ class RunService:
             if body.decision == 'finish' and run.action != 'interview':
                 run.status = 'completed'
                 run.result = {'kind': 'chat', 'data': {'message': '已结束本次活动，没有继续执行评估或资料处理。'}}
+                self.chat_session(run).append_turn('结束本次', run.result['data']['message'])
                 await self.emit(run, 'status', '用户结束本次活动')
                 return self.get(key)
             run.status = 'running'
@@ -276,8 +277,11 @@ class RunService:
             return self.get(key)
 
     def chat_session(self, run):
-        """只按标签页会话分组；未传 session_id 的调用仅在同一运行内共享。"""
-        key = str(run.context.get('session_id') or run.id)
+        """会话内按 action 分组；同一动作新建运行时沿用历史，不自动清空。
+
+        缺少 session_id 时仍以 run_id 隔离调用，避免无会话标识的请求混用。
+        """
+        key = (str(run.context.get('session_id') or run.id), run.action)
         if key not in self.chat_sessions:
             self.chat_sessions[key] = ChatSession()
         return self.chat_sessions[key]
@@ -292,13 +296,12 @@ class RunService:
             await self.emit(run, 'status', '继续执行' if human else '开始执行', {'mode': self.settings.agent_mode})
             command = AgentCommand(run.id, run.action, deepcopy(run.input), deepcopy(run.context),
                                    deepcopy(run.snapshot), deepcopy(run.state), human)
-            session = self.chat_session(run) if run.action == 'chat' else None
-            previous_usage = session.last_usage if session else run.usage
+            session = self.chat_session(run)
+            previous_usage = session.last_usage
             command.previous_usage = deepcopy(previous_usage)
-            if session:
-                command.history = [message.copy() for message in session.messages]
-                command.summary = deepcopy(session.summary)
-                user_text = command.chat_text
+            command.history = [message.copy() for message in session.messages]
+            command.summary = deepcopy(session.summary)
+            user_text = command.chat_text
 
             async def emit(kind, message, data=None):
                 """把 Agent 的事件绑定到本次运行，沿用外层的脱敏和日志写入。"""
@@ -311,12 +314,11 @@ class RunService:
             if 'usage' in response.model_fields_set:
                 run.previous_usage = previous_usage
                 run.usage = deepcopy(response.usage)
-                if session:
-                    session.last_usage = run.usage
+                session.last_usage = run.usage
             response.data = validate_result(response.kind, response.data)
             # 在契约边界校验可序列化性，错误结果不能进入报告表。
             json.dumps(response.model_dump(), ensure_ascii=False, allow_nan=False)
-            if session and response.summary and response.summary.covered_messages > len(session.messages):
+            if response.summary and response.summary.covered_messages > len(session.messages):
                 raise ValueError('摘要覆盖范围超出已有聊天记录')
             run.result = {'kind': response.kind, 'data': deepcopy(response.data)}
             run.state = deepcopy(response.state)
@@ -331,8 +333,15 @@ class RunService:
                 run.report_id = report['id']
             run.status = response.status
             await self.emit(run, 'status', {'completed': '已完成', 'partial': '已有部分结果', 'needs_input': '等待你的补充', 'failed': '执行失败'}[run.status])
-            if session and response.kind == 'chat' and run.status != 'failed':
-                session.append_turn(user_text, response.data['message'])
+            if run.status != 'failed':
+                # 等待补充时记录实际提问；完成的结构化结果保留为 JSON 文本。
+                if run.pending_input:
+                    assistant_text = run.pending_input['prompt']
+                elif response.kind == 'chat':
+                    assistant_text = response.data['message']
+                else:
+                    assistant_text = json.dumps(response.data, ensure_ascii=False, allow_nan=False)
+                session.append_turn(user_text, assistant_text)
                 if response.summary:
                     session.summary = response.summary.model_copy()
         except asyncio.CancelledError:
