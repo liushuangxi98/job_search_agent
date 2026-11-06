@@ -16,13 +16,15 @@ from workbench_fixtures import complete_job, complete_profile
 
 def command(text='这个岗位适合我吗？', session='session-a', job='job-a', human=None, state=None):
     return AgentCommand(
-        run_id='run-' + text, action='chat', input={'text': text},
+        run_id='run-' + text, action='chat', input={},
         context={'type': 'job', 'id': job, 'session_id': session},
         snapshot={
             'profile': {'revision': 2, 'confirmed': True, 'data': complete_profile(skills=['Python'])},
             'context_job': {'id': job, 'revision': 3, 'data': complete_job(title='Agent开发', jd_text='要求 RAG')},
         },
-        state=state or {}, human_input=human,
+        state=state or {}, human_input=human if human is not None else {
+            'decision': 'start', 'text': text, 'data': {}, 'input_id': None,
+        },
     )
 
 
@@ -36,8 +38,10 @@ def service(tmp_path):
 
 
 def run_chat(service, value):
-    run = Run(value.run_id, value.action, value.input, value.context, value.snapshot, False)
-    asyncio.run(service.execute(run, value.human_input))
+    initial = value.human_input['decision'] == 'start'
+    inputs = {**value.input, 'text': value.human_input['text']} if initial else value.input
+    run = Run(value.run_id, value.action, inputs, value.context, value.snapshot, False)
+    asyncio.run(service.execute(run, None if initial else value.human_input))
     return run
 
 
@@ -89,10 +93,10 @@ def test_history_follows_session_across_jobs_pages_and_reports(service, model_st
         assert run_chat(service, value).status == 'completed'
         assert captured[-1][2:-1] == expected_history
         expected_history.extend([
-            {'role': 'user', 'content': value.input['text']},
+            {'role': 'user', 'content': value.human_input['text']},
             {'role': 'assistant', 'content': '建议补充 RAG 项目'},
         ])
-    assert captured[1][2]['content'] == first.input['text']
+    assert captured[1][2]['content'] == first.human_input['text']
 
 
 def test_model_receives_complete_snapshot_without_remapping(model_stub):
@@ -130,7 +134,7 @@ def test_sessions_and_missing_session_run_fallback_are_isolated(service, model_s
         assert len(captured[-1]) == 3
         second.run_id = first.run_id
         run_chat(service, second)
-        assert captured[-1][2]['content'] == first.input['text']
+        assert captured[-1][2]['content'] == first.human_input['text']
 
 
 def test_failed_calls_do_not_append_history(service, model_stub):

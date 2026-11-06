@@ -27,10 +27,9 @@ class ChatSession:
     last_usage: dict | None = None
 
     def append_turn(self, user: str, assistant: str):
-        self.messages.extend([
-            {'role': 'user', 'content': user},
-            {'role': 'assistant', 'content': assistant},
-        ])
+        if user:
+            self.messages.append({'role': 'user', 'content': user})
+        self.messages.append({'role': 'assistant', 'content': assistant})
 
 
 @dataclass
@@ -294,14 +293,27 @@ class RunService:
         """
         try:
             await self.emit(run, 'status', '继续执行' if human else '开始执行', {'mode': self.settings.agent_mode})
-            command = AgentCommand(run.id, run.action, deepcopy(run.input), deepcopy(run.context),
-                                   deepcopy(run.snapshot), deepcopy(run.state), human)
+            task_input = deepcopy(run.input)
+            initial_text = task_input.pop('text', '')
+            if human is None:
+                human_input = {'decision': 'start', 'text': initial_text, 'data': {}, 'input_id': None}
+            else:
+                human_input = deepcopy(human)
+                if human_input['decision'] == 'answer':
+                    if human_input.get('data'):
+                        human_input['text'] += '\n补充信息：' + json.dumps(human_input['data'], ensure_ascii=False)
+                else:
+                    human_input['text'] = {
+                        'confirm': '确认修改', 'reject': '拒绝修改', 'finish': '结束本次',
+                    }[human_input['decision']]
+            command = AgentCommand(run.id, run.action, task_input, deepcopy(run.context),
+                                   deepcopy(run.snapshot), deepcopy(run.state), human_input)
             session = self.chat_session(run)
             previous_usage = session.last_usage
             command.previous_usage = deepcopy(previous_usage)
             command.history = [message.copy() for message in session.messages]
             command.summary = deepcopy(session.summary)
-            user_text = command.chat_text
+            user_text = human_input['text']
 
             async def emit(kind, message, data=None):
                 """把 Agent 的事件绑定到本次运行，沿用外层的脱敏和日志写入。"""

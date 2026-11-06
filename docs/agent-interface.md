@@ -6,9 +6,9 @@
 
 个人资料统一使用 `GET/PUT /api/candidate`。PUT 提交 `{revision, profile}`，一次事务确认并保存，修订号仅增加一次。GET 返回完整 profile、`revision/confirmed` 及 `missing:[{field,label}]`。
 
-个人核心字段必须完整：`profile.name/education/major/experience_years/skills/experience/projects`，以及 `profile.direction/city/commute_origin/salary_min/salary_max`。工作年限允许 0；`experience` 表示工作经历，`projects` 是独立的项目经历。姓名、学历和期望薪资均不是可选项。旧资料缺项时需要重新完善确认，个人资料不能用信息盲区放行。
+个人核心字段必须完整：`profile.name/education/major/experience_years/skills/experience/projects`，以及 `profile.direction/city/commute_origin/salary_min/salary_max/summary/commute_mode`。工作年限允许 0；`experience` 表示工作经历，`projects` 是独立的项目经历。姓名、学历和期望薪资均不是可选项。旧资料缺项时需要重新完善确认，个人资料不能用信息盲区放行。
 
-简历解析须同时返回画像和求职条件。学历 `education` 与大学专业 `major` 分开提取；缺少专业时请用户补充。个人简介 `summary` 和出行偏好 `commute_mode` 可手动编辑。原文依据 `evidence` 由解析程序生成，在草稿和画像页只读展示。字段缺失或含义不清时使用 `needs_input` 提问；最终返回草稿，由页面核对后统一保存。
+简历解析须同时返回画像和求职条件。学历 `education` 与大学专业 `major` 分开提取；缺少专业时请用户补充。个人简介 `summary` 和出行偏好 `commute_mode` 均可编辑且正式确认时必填；出行偏好仅使用“公共交通”或“驾车”，未知为 null。原文依据 `evidence` 由解析程序生成，在草稿和画像页只读展示。字段缺失或含义不清时使用 `needs_input` 提问；最终返回草稿，由页面核对后统一保存。
 
 岗位缺少 `company/title/city/address/jd_text/salary` 时，必须补齐或在 `blind_spots` 中记录招聘方未披露的说明。例如 `{"address":"招聘方尚未提供具体办公地点"}`；`salary` 同时对应薪资上下限。用户须在入库前确认盲区。未知文本可用空字符串，未知薪资用 `null`，不能编造或填零。岗位对象提供 `ready/missing` 供界面在操作入口提示完善。
 
@@ -30,20 +30,20 @@
 | --- | --- |
 | `run_id` | 本次运行 ID，可用于你的 LangGraph 内存线程标识 |
 | `action` | `parse_resume`、`extract_jobs`、`index_knowledge`、`evaluate`、`interview`、`chat` |
-| `input` | 初始输入，如 `document_id`、`text`、`job_ids`、`job_id` |
+| `input` | 初始任务参数，如 `document_id`、`job_ids`、`job_id` |
 | `context` | 当前页面/岗位/报告标识，以及浏览器会话 `session_id` |
 | `snapshot` | 发起时的画像、条件和所选岗位快照；恢复时仍为这份原始快照 |
 | `state` | 你在上一次响应中返回的内存状态，不落数据库 |
-| `human_input` | 首次为 `None`；恢复时为回答、确认、拒绝或结束决定 |
+| `human_input` | 本轮输入始终为字典；首次 decision=start，后续为 answer/confirm/reject/finish |
 | `history` | 同一标签页、同一 action 的完整历史副本。每条仅含 `role`（`user` 或 `assistant`）和 `content` |
 | `summary` | 当前 action 的上一份摘要，首次为 `None`。Agent 使用摘要和 `history[summary.covered_messages:]` 组织上下文 |
 | `previous_usage` | 上一次模型响应的用量，首次或未上报时为 `None`。所有动作均按同一会话、同一 action 传递 |
 
-`human_input` 包含 `input_id`、`decision`、`text` 和 `data`。`decision` 可取 `answer / confirm / reject / finish`。一次输入只处理一次，旧输入 ID 返回 409。
+`human_input` 包含 `input_id`、`decision`、`text` 和 `data`。应用为首次调用填入 decision=start、text（用户文字或空串）、data={}、input_id=None。后续请求的 `decision` 可取 `answer / confirm / reject / finish`。应用将结构化补充附到 text，同时保留 data。一次输入只处理一次，旧输入 ID 返回 409。
 
 面试的 `finish` 交给你的入口生成结束报告；其他活动在澄清阶段选择 `finish` 时，由应用直接结束，不再调用入口或生成新报告。
 
-应用按 `(session_id, action)` 保存历史，缺少会话标识时用 `run_id` 替代。相同 action 再次启动沿用历史，暂不自动清空。所有动作均收到 `command.history`，本轮输入通过 `input / human_input` 单独传递。上传和任务启动记为输入参数 JSON，追问记为 prompt，最终结构化结果记为 JSON 文本。模型配置由你读取，聊天/Embedding 使用 URL、Key、Model 和 OpenAI 兼容接口；百炼专用重排使用独立 HTTP 适配。
+应用按 `(session_id, action)` 保存历史，缺少会话标识时用 `run_id` 替代。相同 action 再次启动沿用历史，暂不自动清空。所有动作均收到 `command.history`，本轮用户文字统一从 `human_input["text"]` 读取，`input` 仅保留文件 ID、岗位 ID 等任务参数。文件 ID 和岗位选择等启动参数只用于执行请求；历史记录实际用户输入、追问和助手结果。模型配置由你读取，聊天/Embedding 使用 URL、Key、Model 和 OpenAI 兼容接口；百炼专用重排使用独立 HTTP 适配。
 
 ## 可用的普通存取
 

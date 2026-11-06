@@ -121,3 +121,20 @@ def test_retired_profile_fields_are_readable_before_migration(client, settings):
     }).json()
     assert saved['confirmed'] and saved['profile']['major'] == '软件工程'
     assert saved['profile']['evidence'] == evidence
+
+
+@pytest.mark.parametrize('old,new', [('public_transit', '公共交通'), ('driving', '驾车')])
+def test_commute_mode_migration_preserves_other_data_and_revision(client, settings, old, new):
+    profile = complete_profile(commute_mode=old)
+    with client.app.state.database.session_factory.begin() as session:
+        row = session.get(Candidate, 1)
+        row.profile = profile
+        row.revision = 5
+        row.confirmed = True
+    assert client.get('/api/candidate').json()['profile']['commute_mode'] == new
+    initialize_database(settings)
+    initialize_database(settings)
+    with client.app.state.database.session_factory() as session:
+        row = session.get(Candidate, 1)
+        assert row.profile == {**profile, 'commute_mode': new}
+        assert row.revision == 5 and row.confirmed

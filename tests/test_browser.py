@@ -17,6 +17,7 @@ import uvicorn
 from backend.app import create_app
 from backend.contracts import AgentResponse
 from backend.demo import JOBS, PROFILE, handle as demo_handle
+from backend.repositories.candidate_repository import CandidateRepository
 from backend.schemas import ProfileData
 
 pytestmark = pytest.mark.browser
@@ -40,7 +41,7 @@ def browser_env(settings):
         images = [x for x in calls if x[0] == 'extract_jobs' and x[1].get('document_id')]
         if len(images) > 1:
             second_image.set()
-        if command.action == 'extract_jobs' and command.input.get('text') == 'missing-company':
+        if command.action == 'extract_jobs' and command.human_input['text'] == 'missing-company':
             job = {**deepcopy(JOBS[0]), 'company': '', 'title': '需要补齐的岗位'}
             return AgentResponse(kind='job_drafts', data={'jobs': [job], 'notice': '缺失字段测试样例'})
         return await demo_handle(command, services, emit)
@@ -196,6 +197,8 @@ def test_profile_fields_survive_confirmation_refresh_and_draft_adoption(browser_
     summary = form.get_by_label('个人简介')
     mode = form.get_by_label('出行偏好')
     expect(major).to_have_attribute('required', '')
+    expect(summary).to_have_attribute('required', '')
+    expect(mode).to_have_attribute('required', '')
     major.fill('软件工程')
     summary.fill('负责测试平台研发')
     mode.select_option(label='驾车')
@@ -205,7 +208,7 @@ def test_profile_fields_survive_confirmation_refresh_and_draft_adoption(browser_
     page.reload()
     expect(major).to_have_value('软件工程')
     expect(summary).to_have_value('负责测试平台研发')
-    expect(mode).to_have_value('driving')
+    expect(mode).to_have_value('驾车')
 
     page.get_by_role('button', name='查看示例画像').click()
     preview = page.locator('#editor')
@@ -216,7 +219,7 @@ def test_profile_fields_survive_confirmation_refresh_and_draft_adoption(browser_
     preview.get_by_role('button', name='填入画像表单').click()
     expect(major).to_have_value(PROFILE['major'])
     expect(summary).to_have_value(PROFILE['summary'])
-    expect(mode).to_have_value('public_transit')
+    expect(mode).to_have_value('公共交通')
     expect(form).to_contain_text('参与自动化项目 resume_dom · 第 2 页')
     assert env['candidate'].get_all()['revision'] == original['revision'] + 1
     summary.fill('核对后补充的简介')
@@ -248,15 +251,62 @@ def test_candidate_zero_years_is_saved_atomically(browser_env):
     assert [x for x in env['requests'] if x[0] == 'PUT'] == [('PUT', '/api/candidate')]
 
 
-@pytest.mark.parametrize('field_name', ['name', 'education', 'major', 'experience_years', 'skills', 'experience',
+@pytest.mark.parametrize('field_name', ['name', 'education', 'major', 'summary', 'commute_mode', 'experience_years', 'skills', 'experience',
                                         'projects', 'direction', 'city', 'commute_origin', 'salary_min', 'salary_max'])
 def test_candidate_required_fields_block_before_request(browser_env, field_name):
     env, page = browser_env, browser_env['page']
     visit(env, 'resume')
-    page.locator(f'#profile-form [name={field_name}]').fill('')
+    control = page.locator(f'#profile-form [name={field_name}]')
+    if field_name == 'commute_mode':
+        control.select_option('')
+    else:
+        control.fill('')
     page.get_by_role('button', name='保存并确认画像与条件').click()
     expect(page.locator('#candidate-errors')).to_be_visible()
     assert not any(method == 'PUT' for method, _ in env['requests'])
+
+
+@pytest.mark.parametrize('field_name, missing_value, label', [
+    ('summary', '', '个人简介'), ('commute_mode', None, '出行偏好'),
+])
+def test_missing_profile_field_blocks_jobs_until_confirmed(browser_env, field_name, missing_value, label):
+    env, page = browser_env, browser_env['page']
+    a, _ = seed_jobs(env)
+    # 模拟旧库中仍标记为已确认、但按当前必填规则存在缺项的画像。
+    with env['candidate'].session_factory.begin() as session:
+        repository = CandidateRepository(session)
+        candidate = repository.get()
+        assert candidate.confirmed
+        repository.update(candidate, {**candidate.profile, field_name: missing_value})
+    current = env['candidate'].get_all()
+    assert not current['confirmed']
+    assert current['missing'] == [{'field': f'profile.{field_name}', 'label': label}]
+
+    visit(env)
+    for action in ('评估', '模拟面试'):
+        button = row(page, a).get_by_role('button', name=action, exact=True)
+        expect(button).to_have_attribute('data-blocked', 'true')
+        expect(button).to_be_disabled()
+    page.get_by_role('link', name='前往简历画像 →').click()
+    control = page.locator(f'#profile-form [name={field_name}]')
+    expect(control).to_have_value('')
+    page.get_by_role('button', name='保存并确认画像与条件').click()
+    expect(page.locator('#candidate-errors')).to_contain_text(label)
+    assert not any(method == 'PUT' for method, _ in env['requests'])
+
+    if field_name == 'commute_mode':
+        control.select_option('公共交通')
+    else:
+        control.fill(PROFILE[field_name])
+    page.get_by_role('button', name='保存并确认画像与条件').click()
+    expect(page.locator('#toast')).to_contain_text('一起确认保存')
+    assert env['candidate'].get_all()['confirmed']
+    page.locator('nav [data-page=jobs]').click()
+    for action in ('评估', '模拟面试'):
+        button = row(page, a).get_by_role('button', name=action, exact=True)
+        expect(button).to_have_attribute('data-blocked', 'false')
+        expect(button).to_be_enabled()
+    assert not env['calls']
 
 
 def test_old_run_view_does_not_replace_active_run(browser_env):

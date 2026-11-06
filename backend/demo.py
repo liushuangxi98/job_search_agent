@@ -11,7 +11,7 @@ PROFILE = {'name': '示例求职者',
            'projects': '开发接口自动化测试平台，支持用例执行和测试报告汇总（固定示例）。', 'evidence': [],
            'city': '杭州', 'direction': 'Python Agent 应用开发', 'salary_min': 20000,
            'salary_max': 30000, 'commute_origin': '杭州西湖区',
-           'commute_mode': 'public_transit'}
+           'commute_mode': '公共交通'}
 JOBS = [
     {'company': '星河科技（虚构）', 'title': 'Agent 应用开发工程师', 'city': '杭州',
      'address': '示例办公地址，待核实', 'salary_min': 20000, 'salary_max': 30000,
@@ -47,7 +47,7 @@ async def handle(command, services, emit):
     human = command.human_input
     if scenario == 'fail':
         raise AppError(502, 'DEMO_FAILURE', '这是固定的失败场景，用于验证界面错误处理。')
-    if scenario == 'needs_input' and human is None and command.action != 'interview':
+    if scenario == 'needs_input' and human['decision'] == 'start' and command.action != 'interview':
         if command.action == 'chat':
             current = command.snapshot['profile']
             pending = {'kind': 'proposal', 'prompt': '演示修改：将期望城市设置为杭州，是否保存？',
@@ -110,11 +110,11 @@ async def handle(command, services, emit):
     if command.action == 'interview':
         # 续接状态由运行服务在下一次调用时交回，未完成的面试不会保存到报告表。
         answers = deepcopy(command.state.get('answers', []))
-        if human and human['decision'] == 'answer':
+        if human['decision'] == 'answer':
             index = len(answers)
             answers.append({'question': QUESTIONS[index], 'answer': human['text'],
                             'question_id': f'demo-{index + 1}', 'source': '固定演示题库'})
-        if len(answers) >= 8 or (human and human['decision'] == 'finish'):
+        if len(answers) >= 8 or human['decision'] == 'finish':
             return AgentResponse(kind='interview_report', data={
                 'title': '模拟面试报告', 'summary': NOTICE + ' 以下评分未评价你的回答。', 'answers': answers,
                 'dimensions': [{'name': 'Agent 基础（固定示例）', 'score': 75 if answers else None}],

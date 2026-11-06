@@ -15,10 +15,10 @@ const labels = {
 };
 const requiredProfileKeys = [
   'name', 'education', 'major', 'experience_years', 'skills', 'experience', 'projects',
-  'direction', 'city', 'commute_origin', 'salary_min', 'salary_max',
+  'direction', 'city', 'commute_origin', 'salary_min', 'salary_max', 'commute_mode', 'summary',
 ];
-const editableProfileKeys = [...requiredProfileKeys, 'summary', 'commute_mode'];
-const commuteModes = {public_transit: '公共交通', driving: '驾车'};
+const editableProfileKeys = requiredProfileKeys;
+const commuteModes = {'': '请选择', '公共交通': '公共交通', '驾车': '驾车'};
 const jobKeys = ['company', 'title', 'city', 'address', 'jd_text', 'salary'];
 const actionNames = {parse_resume: '简历整理', extract_jobs: '岗位提取', index_knowledge: '题库整理', evaluate: '岗位评估', interview: '模拟面试', chat: '聊天'};
 const state = {
@@ -130,7 +130,7 @@ function candidateFields(profile) {
     ${field('姓名', 'name', profile.name, {...required, maxLength: 100})}
     ${field('学历', 'education', profile.education, {...required, maxLength: 2000})}
     ${field('大学专业', 'major', profile.major, {...required, maxLength: 200})}
-    ${field('个人简介', 'summary', profile.summary, {area: true, full: true, maxLength: 10000})}
+    ${field('个人简介', 'summary', profile.summary, {...required, area: true, full: true, maxLength: 10000})}
     ${field('工作年限', 'experience_years', profile.experience_years ?? '', {...required, type: 'number', min: 0, max: 80, step: 'any', hint: '应届或暂无工作经验填 0'})}
     ${field('技能', 'skills', (profile.skills || []).join('，'), {...required, hint: '用逗号或换行分隔'})}
     ${field('工作经历', 'experience', profile.experience, {...required, area: true, full: true, maxLength: 20000, hint: '暂无工作经历请如实填写'})}
@@ -139,7 +139,7 @@ function candidateFields(profile) {
     ${field('求职方向', 'direction', profile.direction, {...required, maxLength: 200})}
     ${field('期望城市', 'city', profile.city, {...required, maxLength: 100})}
     ${field('通勤起点', 'commute_origin', profile.commute_origin, {...required, full: true, maxLength: 300, hint: '城市及具体地址，用于查询公交与驾车路线'})}
-    <label class="field"><span>出行偏好</span><select name="commute_mode">${Object.entries(commuteModes).map(([key, text]) => `<option value="${key}" ${key === profile.commute_mode ? 'selected' : ''}>${text}</option>`).join('')}</select></label>
+    <label class="field"><span>出行偏好 <em>*</em></span><select name="commute_mode" required>${Object.entries(commuteModes).map(([key, text]) => `<option value="${key}" ${key === (profile.commute_mode ?? '') ? 'selected' : ''}>${text}</option>`).join('')}</select></label>
     ${field('期望月薪下限（元）', 'salary_min', profile.salary_min ?? '', salary)}
     ${field('期望月薪上限（元）', 'salary_max', profile.salary_max ?? '', salary)}
   </div>${profileEvidence(profile.evidence)}`;
@@ -790,6 +790,7 @@ const actions = {
     values.experience_years = data.profile.experience_years ?? '';
     values.salary_min = data.profile.salary_min ?? '';
     values.salary_max = data.profile.salary_max ?? '';
+    values.commute_mode = data.profile.commute_mode ?? '';
     state.drafts.candidate = {values, revision: state.candidate?.revision ?? 0};
     cancelBatch(batch);
     closeDialog();

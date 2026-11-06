@@ -10,7 +10,7 @@ def complete_profile(**changes):
         'summary': '四年 Python 测试开发经验',
         'direction': 'Python Agent 应用开发', 'city': '杭州',
         'commute_origin': '杭州市西湖区文三路',
-        'salary_min': 20000, 'salary_max': 30000,
+        'salary_min': 20000, 'salary_max': 30000, 'commute_mode': '公共交通',
         **changes,
     }
 

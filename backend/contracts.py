@@ -1,6 +1,5 @@
 """应用与 Agent 的数据契约；只定义输入输出，不包含提示词、推理或算法。"""
 from dataclasses import dataclass, field
-import json
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -41,7 +40,8 @@ from .schemas import Payload, JobData, ProfileData, QuestionData
 #
 # extract_jobs：招聘信息提取
 #   场景：用户上传招聘截图，或粘贴招聘原文。
-#   输入：input.document_id 引用 image 资料，或 input.text 提供原文。
+#   请求：input.document_id 引用 image 资料，或 input.text 提供原文。
+#   Agent 从 command.human_input["text"] 读取招聘原文。
 #   返回：job_drafts，供用户编辑后入库。
 #
 # index_knowledge：题库导入与索引
@@ -63,7 +63,7 @@ from .schemas import Payload, JobData, ProfileData, QuestionData
 #
 # chat：聊天与资料补充
 #   场景：用户补充资料，或追问当前岗位、报告。
-#   输入：input.text 为消息，context 标识关联对象。
+#   请求：input.text 为消息，context 标识关联对象；Agent 从 human_input["text"] 读消息。
 #   回答：chat；提出资料修改时使用 chat + needs_input。
 #   确认：应用处理聊天提案并给出回执；仅补充问题的回答会续接聊天 Agent。
 #
@@ -574,7 +574,7 @@ def validate_result(kind, data):
 # dataclass 只生成数据容器的初始化等方法，不像 Pydantic 那样自动校验字段内容。
 @dataclass
 class AgentCommand:
-    """交给 Agent 的运行上下文；snapshot 保留发起时资料，human_input 首次为 None。"""
+    """交给 Agent 的运行上下文；snapshot 保留发起时资料，human_input 表示本轮输入。"""
 
     # run_id：应用必传的运行 ID；无默认值，dataclass 不校验格式。
     #   示例："run_001"。
@@ -584,7 +584,7 @@ class AgentCommand:
     #   示例："interview"。
     action: str
 
-    # input：应用必传的初始任务参数；无默认值，恢复时仍是原始输入。
+    # input：初始任务参数；恢复时仍保留文件、岗位 ID 等参数，用户文字统一放入 human_input。
     #   示例：{"job_id": "job_001"}。
     input: dict
 
@@ -607,35 +607,26 @@ class AgentCommand:
     #   修改这个副本不会自动保存；需要续接的内容须随本轮 AgentResponse.state 返回。
     state: dict
 
-    # human_input：人工输入；可省略，默认 None；首次调用为 None。
-    #   恢复结构：对应 RunInput；收到 decision="confirm" 时修改已保存，不能重复执行。
+    # human_input：应用必传的本轮输入字典。
+    #   decision：首次为 start，续接为 answer / confirm / reject / finish。
+    #   text：模型和历史共用的输入文字；仅上传文件或选岗位时为 ""。
+    #   data：原始结构化补充，默认 {}；非空时应用同时将它附在 text 中。
+    #   input_id：首次为 None，续接使用已核对的一次性输入 ID。
+    #   收到 decision="confirm" 时修改已保存，不能重复执行。
     #   示例：
     #     {
     #       "input_id": "input_001", "decision": "answer",
     #       "text": "我的回答", "data": {}
     #     }
-    human_input: dict | None = None
+    human_input: dict
 
     # 同一会话、同一 action 的历史副本，仅含 role（user / assistant）和 content。
-    # 所有动作均提供；本轮输入另外通过 input / human_input 传递。
+    # 所有动作均提供；本轮用户文字另外通过 human_input 传递。
     history: list[dict[str, str]] = field(default_factory=list)
     summary: ChatSummary | None = None
 
     # 上一次模型响应的用量；首次调用或上次未上报时为 None。
     previous_usage: dict | None = None
-
-    @property
-    def chat_text(self) -> str:
-        """本轮输入文字；上传和任务启动保存输入参数 JSON，原文件仍由文件服务读取。"""
-        if self.human_input is None:
-            return self.input.get('text') or json.dumps(self.input, ensure_ascii=False)
-        if self.human_input['decision'] != 'answer':
-            return {'confirm': '确认修改', 'reject': '拒绝修改', 'finish': '结束本次'}[self.human_input['decision']]
-        text = self.human_input.get('text', '')
-        if self.human_input.get('data'):
-            text += '\n补充信息：' + json.dumps(self.human_input['data'], ensure_ascii=False)
-        return text
-
 
 @dataclass
 class ApplicationServices:

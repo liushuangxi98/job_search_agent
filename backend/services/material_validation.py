@@ -5,7 +5,8 @@ CANDIDATE_FIELDS = {
     'experience_years': '工作年限', 'skills': '技能',
     'experience': '工作经历', 'projects': '项目经历',
     'direction': '求职方向', 'city': '目标城市', 'commute_origin': '通勤起点',
-    'salary_min': '期望月薪下限', 'salary_max': '期望月薪上限',
+    'salary_min': '期望月薪下限', 'salary_max': '期望月薪上限', 'summary': '个人简介',
+    'commute_mode': '出行偏好'
 }
 JOB_FIELDS = {
     'company': '公司名称', 'title': '岗位名称', 'city': '工作城市',

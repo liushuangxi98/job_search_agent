@@ -20,6 +20,8 @@ CANDIDATE_MISSING = [
     ('profile', 'name', ''),
     ('profile', 'education', ''),
     ('profile', 'major', ''),
+    ('profile', 'summary', ''),
+    ('profile', 'commute_mode', None),
     ('profile', 'experience_years', None),
     ('profile', 'skills', []),
     ('profile', 'experience', ''),
