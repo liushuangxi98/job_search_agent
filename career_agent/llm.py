@@ -19,3 +19,9 @@ def build_chat():
         # 不隐式重试模型操作，包含 413 在内的失败交由当前运行明确报告。
         max_retries=0,
     )
+
+async def ainvoke(messages: list, client: ChatOpenAI|None = None):
+    if client is None:
+        client = build_chat()
+    ret = client.ainvoke(messages)
+    return ret

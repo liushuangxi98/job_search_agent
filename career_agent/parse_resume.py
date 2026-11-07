@@ -16,9 +16,9 @@ from pydantic import ValidationError
 
 from .llm import build_chat
 from .prompts import GEI_RESUME_PROMPTS
-from backend.contracts import AgentResponse, ProfileDraftData, PendingInput
+from backend.contracts import AgentResponse
 from backend.schemas import ProfileData
-from backend.services.material_validation import candidate_missing
+from backend.services.material_validation import check_dict_missing
 from backend.exceptions import AppError
 
 
@@ -54,7 +54,7 @@ async def get_resume(command, file_path, emit) -> AgentResponse:
         return AgentResponse(
             status='failed', kind='chat', data={'message': '补充内容与画像字段约束冲突，请核对后重新发起。'}, usage=usage,
         )
-    missing = candidate_missing(update)
+    missing = check_dict_missing(update, ProfileData)
     if missing:  # 简历需要补充
         question = '还需补充：' + '、'.join(item['label'] for item in missing) + '。可以一次补齐，也可以先回答其中几项。'
         ret = AgentResponse(
@@ -63,7 +63,7 @@ async def get_resume(command, file_path, emit) -> AgentResponse:
         )
         return ret
     else:
-        return AgentResponse(status='completed', kind='profile_draft', data={'profile': update}, usage=usage)
+        return AgentResponse(status='completed', kind='profile_draft', data=update, usage=usage)
 
 def extract_resume_text(path: Path) -> str:
     """读取已定位的 PDF/DOCX，返回带原文位置的非空正文；格式、加密或空正文错误抛 AppError。"""

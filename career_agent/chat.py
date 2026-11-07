@@ -13,13 +13,13 @@ class ChatDecision(BaseModel):
     """向用户回答、请求补充，或提出一项待确认的资料修改。"""
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     msg_kind: Literal['reply', 'question', 'proposal'] = Field(
-        description='reply：直接回答；question：缺信息需用户补充；proposal：修改内容已明确，交给用户确认。',
+        title='消息类别', description='reply：直接回答；question：缺信息需用户补充；proposal：修改内容已明确，交给用户确认。',
     )
     message: str = Field(
-        min_length=1, description='唯一的展示文字；question 时写完整问题，proposal 时说明待确认的修改。',
+        title='展示文字', min_length=1, description='唯一的展示文字；question 时写完整问题，proposal 时说明待确认的修改。',
     )
     proposal: ChangeProposal | None = Field(
-        default=None, description='仅 proposal 类别填写结构化修改数据，其他类别为 null。',
+        title='修改提案', default=None, description='仅 proposal 类别填写结构化修改数据，其他类别为 null。',
     )
 
     @model_validator(mode='after')
