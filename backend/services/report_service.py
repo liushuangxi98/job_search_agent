@@ -75,14 +75,20 @@ def markdown(report):
     if report['kind'] == 'evaluation':
         def cell(value):
             return '未知' if value is None or value == '' else str(value).replace('|', '\\|').replace('\n', ' ')
+        snapshot_jobs = {job['id']: job['data'] for job in report['snapshot'].get('jobs', [])}
         for row in data.get('jobs', []):
-            lines += ['', '## ' + cell(row.get('company')) + ' · ' + cell(row.get('title')),
+            job = snapshot_jobs.get(row.get('job_id'), row)
+            lines += ['', '## ' + cell(job.get('company')) + ' · ' + cell(job.get('title')),
                       '', '匹配分：' + cell(row.get('match_score')), '', row.get('recommendation', '')]
             lines += ['', '### 匹配依据']
             for item in row.get('matches', []):
                 lines += ['- 要求：' + item.get('requirement', ''), '  依据：' + item.get('evidence', '')]
-            for name, field in [('优势', 'strengths'), ('差距', 'gaps'), ('信息盲区', 'missing')]:
-                lines += ['', '### ' + name] + ['- ' + text for text in row.get(field, [])]
+            for name, field in [('最有利的经历', 'supporting_experiences'), ('优势', 'strengths'),
+                                ('差距', 'gaps'), ('信息盲区', 'missing')]:
+                if row.get(field):
+                    lines += ['', '### ' + name] + ['- ' + text for text in row[field]]
+            if row.get('key_requirement'):
+                lines += ['', '### 最不利的关键要求', row['key_requirement']]
             lines += ['', '### 单程通勤', '| 方式 | 分钟 | 公里 | 主要路线 |', '| --- | ---: | ---: | --- |']
             for mode, label in [('public_transit', '公共交通'), ('driving', '驾车')]:
                 route = row.get('commutes', {}).get(mode, {})

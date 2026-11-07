@@ -80,23 +80,25 @@ async def handle(command, services, emit):
         items = []
         # 只展示独立匹配分和路线样例，不进行真实评分、查询或排名。
         scores = [80, 70]
+        has_partial = False
         for index, job in enumerate(command.snapshot['jobs']):
             partial = not job['data']['address'] or (scenario == 'partial' and index == len(command.snapshot['jobs']) - 1)
-            items.append({'job_id': job['id'], 'company': job['data']['company'], 'title': job['data']['title'],
+            has_partial = has_partial or partial
+            items.append({'job_id': job['id'],
                           'match_score': None if not (job['data']['job_description'] or job['data']['job_requirement']) else scores[index % len(scores)],
-                          'matches': [{'requirement': 'Python 开发与工具调用（固定示例）',
-                                       'evidence': 'Python 自动化测试经历（固定示例）', 'assessment': 'partial'}],
-                          'strengths': ['Python 工程与自动化测试经验（固定示例）'],
-                          'gaps': ['需要补充可展示的 Agent 项目经历（固定示例）'],
+                          'matches': [{'requirement': 'Python 开发（固定示例）',
+                                       'evidence': 'Python 自动化测试经历（固定示例）', 'assessment': 'matched'}],
+                          'supporting_experiences': ['Python 自动化测试经历符合开发要求（固定示例）'],
+                          'key_requirement': None,
                           'recommendation': '演示建议：查看技能差距，补充资料后再做真实评估。',
-                          'missing': (['通勤信息待补充'] if partial else []), 'evidence': [],
+                          'evidence': [],
                           'commutes': {'public_transit': {
                               'duration_minutes': None if partial else 45, 'distance_km': None if partial else 18,
                               'route_summary': '' if partial else '步行 → 地铁 → 步行（固定路线样例）'},
                               'driving': {'duration_minutes': None if partial else 30,
                                           'distance_km': None if partial else 16,
                                           'route_summary': '' if partial else '城市道路 → 园区道路（固定路线样例）'}}})
-        return AgentResponse(status='partial' if any(item['missing'] for item in items) else 'completed',
+        return AgentResponse(status='partial' if has_partial else 'completed',
                              kind='evaluation_report',
                              data={'title': '岗位评估报告 · 模拟', 'summary': NOTICE, 'jobs': items})
     if command.action == 'interview':

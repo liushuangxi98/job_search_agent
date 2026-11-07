@@ -201,43 +201,31 @@ class RequirementMatch(Payload):
     assessment: Literal['matched', 'partial', 'gap', 'unknown'] = Field(title='匹配判断', default='unknown', description='匹配判断：matched 符合，partial 部分符合，gap 有明确差距，unknown 资料不足。缺少证据不等于没有能力。')
 
 
-class ReportJob(BaseModel):
-    """独立岗位分析：匹配分、依据和通勤，不计算薪资分、通勤分、总分或排名。"""
-    # 新结果只保留当前契约字段；历史已保存报告仍按原始快照读取。
-    model_config = {'extra': 'ignore'}
-
-    # job_id：必填字符串，对应输入快照中的岗位 ID；示例："job_001"。
-    job_id: str = Field(title='岗位ID', description='本条评估对应的岗位 ID，必须来自本次输入快照中的岗位。')
-
-    # company：必填字符串，无长度约束；未知时为空串并在 missing 说明；示例："星河科技"。
-    company: str = Field(title='公司名称', description='该岗位快照中的公司名称；未知时留空，并在 missing 说明。')
-
-    # title：必填字符串，无长度约束；未知时为空串并在 missing 说明；示例："Agent 开发"。
-    title: str = Field(title='岗位名称', description='该岗位快照中的职位名称；未知时留空，并在 missing 说明。')
-
-    # match_score：独立百分制匹配分；默认 None，有限数值 0—100；示例：82。
-    #   由 Agent 提供，缺乏依据时保留 None，不代表录用概率，不与其他维度合成总分。
-    match_score: float | None = Field(title='匹配分', default=None, ge=0, le=100, allow_inf_nan=False, description='独立的百分制匹配分，范围 0—100；缺乏评分依据时为 null，不代表录用概率。')
-
+class JobMatchAnalysis(BaseModel):
+    """模型根据一个岗位和候选人画像填写的分析。"""
     # matches：要求与经历的对应分析；默认 []，每项为 RequirementMatch。
     #   示例：[{"requirement": "Python", "evidence": "接口平台项目", "assessment": "matched"}]。
     matches: list[RequirementMatch] = Field(title='逐项匹配', default_factory=list, description='逐项对应 JD 要求与候选人经历的分析列表；各项依据须属于当前候选人和岗位。')
 
-    # strengths：匹配优势；默认 []，不限条数的字符串列表；示例：["Python 工程经验"]。
-    strengths: list[str] = Field(title='优势', default_factory=list, description='有资料支持的匹配优势列表。')
-
-    # gaps：已识别的差距；默认 []，不限条数的字符串列表；示例：["缺少部署实践"]。
-    gaps: list[str] = Field(title='差距', default_factory=list, description='根据现有资料明确识别的能力或经历差距；信息不足的问题放入 missing。')
-
-    # missing：影响结论的信息盲区；默认 []，字符串列表；示例：["办公地点尚未披露"]。
-    missing: list[str] = Field(title='信息盲区', default_factory=list, description='影响本次结论的信息盲区及原因列表，例如办公地址未披露或通勤查询失败。')
+    supporting_experiences: list[str] = Field(title='最有利的经历', default_factory=list,
+        description='仅列明确满足重要要求且对投递非常有利的具体经历，指出对应要求；没有则返回空列表。')
+    key_requirement: str | None = Field(title='最不利的关键要求', default=None,
+        description='候选人明确不满足、且最影响投递的一条重要要求及原因。没有明确的重要差距则填 null。')
 
     # recommendation：针对本岗位的建议；默认 ""，无长度上限；示例："先确认地点再决定是否投递"。
     recommendation: str = Field(title='求职建议', default='', description='针对本岗位的求职建议，结合匹配依据和已知限制。')
 
     # evidence：附加引用依据；默认 []，元素结构不固定，须可 JSON 序列化。
     #   示例：[{"source": "JD", "text": "要求 Python 开发经验"}]。
-    evidence: list = Field(title='补充依据', default_factory=list, description='评估结论的附加依据列表，可记录来源和引用原文。')
+    evidence: list[dict[str, str]] = Field(title='补充依据', default_factory=list,
+        description='引用本岗位或画像中实际用于判断的原文，每项填写 source（来源）和 text（原文）。')
+
+
+class ReportJob(JobMatchAnalysis):
+    """单岗结果；程序根据岗位快照关联 ID，计算匹配分并填写通勤。"""
+    job_id: str = Field(title='岗位ID', description='本次快照中被评估的岗位 ID。')
+    match_score: float | None = Field(title='匹配分', default=None, ge=0, le=100, allow_inf_nan=False,
+        description='已确认材料对岗位必备要求的覆盖分，无法评分时为 null。')
 
     # commutes：默认 {}，public_transit / driving 分别对应公交、驾车，值按 CommuteResult 校验。
     #   示例：{"driving": {"duration_minutes": 35, "distance_km": 12, "route_summary": "经城市道路到园区"}}。
@@ -474,10 +462,10 @@ class PendingInput(Payload):
 #   示例：{}。
 #
 # evaluation_report：岗位评估报告
-#   必填：jobs；每项对应 ReportJob，必填 job_id、company、title。
+#   必填：jobs；每项通过 job_id 关联本次快照。
 #   示例：
 #     {"jobs": [
-#       {"job_id": "job_001", "company": "星河科技", "title": "Agent 开发"}
+#       {"job_id": "job_001"}
 #     ]}
 #
 # interview_question：当前一轮面试问题

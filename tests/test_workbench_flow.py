@@ -350,8 +350,7 @@ def test_new_evaluation_preserves_match_evidence_and_routes_without_old_scores(s
             'title': '匹配报告', 'summary': '固定测试结果', 'jobs': [{
                 'job_id': job['id'], 'company': job['data']['company'], 'title': job['data']['title'],
                 'match_score': match_score, 'matches': deepcopy(matches),
-                'strengths': ['Python 自动化经验'], 'gaps': ['缺少生产部署经历'],
-                'missing': ['匹配依据与公交路线待补充'] if match_score is None else [],
+                'supporting_experiences': ['Python 自动化经验'], 'key_requirement': '缺少生产部署经历',
                 'recommendation': '补充部署案例', 'evidence': [{'source': '简历', 'text': '维护接口平台'}],
                 'commutes': deepcopy(commutes),
                 'salary_score': 100, 'commute_score': 90, 'total_score': 88,
@@ -368,12 +367,12 @@ def test_new_evaluation_preserves_match_evidence_and_routes_without_old_scores(s
         assert result['match_score'] == match_score
         assert not OLD_SCORES.intersection(result)
         assert result['matches'] == [dict(item, assessment=item.get('assessment', 'unknown')) for item in matches]
-        assert result['strengths'] == ['Python 自动化经验']
-        assert result['gaps'] == ['缺少生产部署经历']
+        assert result['supporting_experiences'] == ['Python 自动化经验']
+        assert result['key_requirement'] == '缺少生产部署经历'
         assert result['commutes'] == commutes
         assert result['recommendation'] == '补充部署案例'
         assert result['evidence'] == [{'source': '简历', 'text': '维护接口平台'}]
-        assert bool(result['missing']) is (match_score is None)
+        assert not {'company', 'title', 'strengths', 'gaps', 'missing'}.intersection(result)
         report = client.get('/api/reports/' + run['report_id']).json()
         assert report['data'] == run['result']['data']
         assert client.get('/api/reports').json()['items'] == [report]
@@ -388,7 +387,7 @@ def test_new_evaluation_preserves_match_evidence_and_routes_without_old_scores(s
 @pytest.mark.parametrize('changes', [
     {'match_score': -1}, {'match_score': 101}, {'match_score': float('inf')},
     {'matches': [{'requirement': 'Python', 'evidence': '简历', 'assessment': 'invented'}]},
-    {'strengths': 'not-a-list'},
+    {'supporting_experiences': 'not-a-list'},
     {'commutes': {'driving': {'duration_minutes': -1}}},
     {'commutes': {'driving': {'distance_km': float('nan')}}},
 ])

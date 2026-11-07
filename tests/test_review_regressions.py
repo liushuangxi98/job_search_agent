@@ -84,7 +84,7 @@ def test_event_protocol_fields_are_not_redacted(settings):
 @pytest.mark.parametrize('kind,data', [
     ('interview_report', {'title': '错误结果', 'dimensions': 'not-an-array'}),
     ('interview_report', {'title': '错误结果', 'dimensions': [{'name': '技能', 'score': 999}]}),
-    ('evaluation_report', {'title': '错误结果', 'jobs': [{'job_id': 'x', 'company': 'x', 'title': 'x', 'gaps': 'not-an-array'}]}),
+    ('evaluation_report', {'title': '错误结果', 'jobs': [{'job_id': 'x', 'key_requirement': ['not-a-string']}]}),
 ])
 def test_malformed_report_is_not_persisted(settings, kind, data):
     async def handle(command, services, emit):

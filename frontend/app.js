@@ -177,10 +177,12 @@ function reportContent(report, jobId) {
   if (report.kind === 'evaluation') {
     const row = (data.jobs || []).find(x => x.job_id === jobId);
     if (!row) return header + '<p class="caption">该历史报告没有对应岗位的匹配结果。</p>';
+    const job = report.snapshot?.jobs?.find(item => item.id === jobId)?.data || row;
     const assessment = {matched: '符合', partial: '部分符合', gap: '差距', unknown: '未知'};
-    return header + `<h3>${esc(row.company || '未披露公司')} · ${esc(row.title || '未披露职位')}</h3><div class="report-score">${score(row.match_score)}<small>匹配分 / 100</small></div>
+    return header + `<h3>${esc(job.company || '未披露公司')} · ${esc(job.title || '未披露职位')}</h3><div class="report-score">${score(row.match_score)}<small>匹配分 / 100</small></div>
       ${commuteHTML(row.commutes)}<p class="prose">${esc(row.recommendation || '暂无建议')}</p>
       ${(row.matches || []).length ? `<h3>逐项匹配依据</h3><div class="table-scroll"><table><thead><tr><th>岗位要求</th><th>个人证据</th><th>判断</th></tr></thead><tbody>${row.matches.map(x => `<tr><td>${esc(x.requirement)}</td><td>${esc(x.evidence || '未知')}</td><td>${esc(assessment[x.assessment] || '未知')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="caption detail-section">本次报告未提供逐项匹配依据。</p>'}
+      ${textList('最有利的经历', row.supporting_experiences)}${row.key_requirement ? `<h3>最不利的关键要求</h3><p class="prose">${esc(row.key_requirement)}</p>` : ''}
       ${textList('优势', row.strengths)}${textList('差距', row.gaps)}${textList('信息缺口', row.missing)}
       ${(row.evidence || []).length ? `<details class="detail-section"><summary>原文证据与引用</summary><pre class="prose">${esc(JSON.stringify(row.evidence, null, 2))}</pre></details>` : ''}
       <details class="detail-section"><summary>本次使用的资料快照</summary><pre class="prose">${esc(JSON.stringify(report.snapshot || {}, null, 2))}</pre></details>`;

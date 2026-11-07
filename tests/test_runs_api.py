@@ -92,7 +92,7 @@ def test_demo_failure_and_partial_states_are_visible(client):
     result = run['result']['data']['jobs'][0]
     assert result['match_score'] is not None
     assert result['commutes']['public_transit']['duration_minutes'] is None
-    assert result['missing']
+    assert result['commutes']['driving']['duration_minutes'] is None
     assert run['report_id']
     assert client.get('/api/reports/' + run['report_id']).json()['data']['jobs'][0] == result
 
