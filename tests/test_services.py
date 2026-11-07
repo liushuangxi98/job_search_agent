@@ -36,12 +36,12 @@ def test_service_rejects_stale_candidate_revision(client):
 
 def test_service_failed_job_update_preserves_data_and_sources(client):
     documents = client.app.state.document_service
-    source = asyncio.run(documents.save(UploadFile(BytesIO(b'# RAG'), filename='questions.md'), 'knowledge'))
+    source = asyncio.run(documents.save(UploadFile(BytesIO(b'\x89PNG\r\n\x1a\n'), filename='job.png'), 'image'))
     service = client.app.state.job_service
-    saved = service.save(complete_job(company='事务公司', title='开发', source_ids=[source['id']]))
+    saved = service.save(complete_job(company='事务公司', title='开发', evidence=[{'document_id': source['id']}]))
 
     with pytest.raises(AppError):
-        service.save({**saved['data'], 'title': '不应保存', 'source_ids': ['missing']},
+        service.save({**saved['data'], 'title': '不应保存', 'evidence': [{'document_id': 'missing'}]},
                      saved['id'], saved['revision'])
 
     assert service.get(saved['id']) == saved

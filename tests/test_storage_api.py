@@ -27,15 +27,14 @@ def test_invalid_preferences_do_not_change_database(client):
 
 
 def test_job_sources_unknown_id_rolls_back_and_search_works(client):
-    job = complete_job(company='星河科技', jd_text='Python 与 RAG', source_ids=['missing'],
-                       salary_min=None, salary_max=None, blind_spots={'salary': '招聘方未披露薪资'})
+    job = complete_job(company='星河科技', job_description='Python 与 RAG', evidence=[{'document_id': 'missing'}])
     assert client.post('/api/jobs', json=job).status_code == 404
     assert client.get('/api/jobs').json()['total'] == 0
-    job['source_ids'] = []
+    job['evidence'] = []
     saved = client.post('/api/jobs', json=job)
     assert saved.status_code == 201
     item = saved.json()
-    assert item['data']['salary_min'] is None
+    assert item['data']['salary_min'] == job['salary_min']
     assert client.get('/api/jobs?q=星河').json()['total'] == 1
     update = {'revision': item['revision'], 'data': {**job, 'address': '杭州软件园'}}
     assert client.put('/api/jobs/' + item['id'], json=update).status_code == 200

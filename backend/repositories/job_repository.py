@@ -51,7 +51,7 @@ class JobRepository:
         return rows, total
 
     def add(self, data: dict):
-        """用已校验且移除 source_ids 的 data 新建岗位，flush 并从数据库重读后返回记录对象。"""
+        """用已校验的完整岗位及 evidence 新建记录，flush 并重读后返回。"""
         row = Job(data=data)
         self.session.add(row)
         self.session.flush()
@@ -61,7 +61,7 @@ class JobRepository:
 
     def update(self, row: Job, data: dict):
         """用 data 整体替换当前会话岗位记录 row 的内容，flush 后返回 None。
-        data 不含来源列表；修订号检查与递增、来源关联修改均由服务另行处理。
+        修订号检查与递增、截图关联修改均由服务另行处理。
         """
         row.data = data
         self.session.flush()

@@ -10,7 +10,9 @@
 
 简历解析须同时返回画像和求职条件。学历 `education` 与大学专业 `major` 分开提取；缺少专业时请用户补充。个人简介 `summary` 和出行偏好 `commute_mode` 均可编辑且正式确认时必填；出行偏好仅使用“公共交通”或“驾车”，未知为 null。原文依据 `evidence` 由解析程序生成，在草稿和画像页只读展示。字段缺失或含义不清时使用 `needs_input` 提问；最终返回草稿，由页面核对后统一保存。
 
-岗位缺少 `company/title/city/address/jd_text/salary` 时，必须补齐或在 `blind_spots` 中记录招聘方未披露的说明。例如 `{"address":"招聘方尚未提供具体办公地点"}`；`salary` 同时对应薪资上下限。用户须在入库前确认盲区。未知文本可用空字符串，未知薪资用 `null`，不能编造或填零。岗位对象提供 `ready/missing` 供界面在操作入口提示完善。
+岗位业务字段为 `company/title/city/address/salary_min/salary_max/job_description/job_requirement/experience_years/education`，另有只读的 `evidence`。职责与任职要求分别填写，工作经验填明确的最低年限数值；未说明为 null，明确不限经验为 0。未披露的文字留空、数值填 null，草稿可暂缺，新增和编辑入库前十个业务字段都须补齐。截图正文折叠时 complete 为 null：运行服务识别草稿或待补充 state 中的该标记，返回失败码 JOB_TEXT_FOLDED。Agent 也可在 failed + chat 的 data 中返回相同 code 与 message。多图队列允许用户跳过这张并继续，其他失败或 413 停止本批。当前岗位结构已移除 jd_text、notes、salary_note 和 blind_spots，接口也不再使用岗位 ready/missing 门槛；个人画像仍须完整确认。
+
+岗位来源统一放在 `evidence` 列表，每条含 `document_id/locator/text`。同一岗位的非空 document_id 必须指向同一张已上传截图；粘贴原文用 null。依据在预览和编辑页只读展示。相同内容使用同一截图 ID 再次导入时合并新依据，使用不同截图 ID 时分别保留记录。
 
 上传原件及文件元数据可以先保存，画像确认和岗位入池发生在资料核对完成后。真实能力未接入不能伪装成诊断成功；demo 仅用固定结果演示流程。
 
@@ -75,8 +77,8 @@
 
 | kind | data 的主要字段 |
 | --- | --- |
-| `profile_draft` | `profile`（ProfileData，包含求职条件）必填；可选 `diagnosis` 字符串列表、`notice` |
-| `job_drafts` | `jobs`（JobDraft 列表，含 `blind_spots`）、可选 `diagnosis`、`notice` |
+| `profile_draft` | 直接返回 `ProfileData` 字典，包含个人经历和求职条件 |
+| `job_drafts` | 直接返回一个 `JobData` 字典，含 `evidence`。一张截图对应一次运行和一个岗位；选择多图时前端逐张发起运行 |
 | `knowledge_result` | `questions`、`coverage`、`notice`；真实入库/索引由你的处理代码完成 |
 | `evaluation_report` | `title/summary/jobs`；每岗包含 `job_id/company/title/match_score/matches/strengths/gaps/recommendation/missing/evidence/commutes` |
 | `interview_question` | `round`、`question`、`question_id`、`source` |
@@ -115,7 +117,7 @@
 
 ## 输出校验与界面恢复
 
-应用按 `kind` 校验字段和数组，结构错误不会保存为完成报告。岗位草稿允许字段暂缺，用户在预览中补齐、确认盲区或跳过。新评估结果只保留当前 ReportJob 的字段，忽略旧薪资分、通勤分和总分；数据库中的历史报告不被改写，仍可按原快照查看和导出。
+应用按 `kind` 校验字段和数组，结构错误不会保存为完成报告。岗位草稿允许字段暂缺，用户在预览中核对、编辑或跳过，十个业务字段全部补齐才能保存。新评估结果只保留当前 ReportJob 的字段，忽略旧薪资分、通勤分和总分；数据库中的历史报告不被改写，仍可按原快照查看和导出。
 
 运行查询额外返回 `context` 和 `subject_job_id`，用于刷新后回到同一个面试岗位。历史运行的展示不替换正在进行的活动。轮询失败仅重试状态 GET，不重发模型操作 POST；413 不自动重试。
 

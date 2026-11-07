@@ -3,8 +3,8 @@ from sqlalchemy import MetaData, Table, create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 
 from .config import Settings
-from .models import Base, Candidate
-from .schemas import ProfileData, current_profile_fields
+from .models import Base, Candidate, Job, JobSource, Document
+from .schemas import ProfileData, JobData, current_profile_fields, current_job_fields
 
 
 def make_engine(settings: Settings, *, administrative=False):
@@ -61,6 +61,19 @@ def merge_candidate_profile(engine):
             connection.execute(text('ALTER TABLE candidate DROP COLUMN preferences'))
 
 
+def migrate_job_evidence(database):
+    """将旧岗位来源转换为依据；多来源或非截图来源须人工整理，失败时整批回滚。"""
+    with database.session_factory.begin() as session:
+        for row in session.scalars(select(Job).with_for_update()).all():
+            ids = list(session.scalars(select(JobSource.document_id).where(JobSource.job_id == row.id)))
+            if any(session.get(Document, key).kind != 'image' for key in ids):
+                raise ValueError('旧岗位存在非截图来源，请先整理后迁移')
+            data = current_job_fields(row.data, ids)
+            JobData.model_validate(data)
+            if data != row.data:
+                row.data = data
+
+
 def initialize_database(settings: Settings, *, create_database=False):
     """补建缺失表和单用户初始记录，成功无返回值。
 
@@ -81,6 +94,7 @@ def initialize_database(settings: Settings, *, create_database=False):
     try:
         Base.metadata.create_all(database.engine)
         merge_candidate_profile(database.engine)
+        migrate_job_evidence(database)
         # begin() 在正常退出时提交、异常退出时回滚；仅缺失时插入初始画像记录。
         with database.session_factory.begin() as session:
             if session.get(Candidate, 1) is None:

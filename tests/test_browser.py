@@ -18,6 +18,7 @@ from backend.app import create_app
 from backend.contracts import AgentResponse
 from backend.demo import JOBS, PROFILE, handle as demo_handle
 from backend.repositories.candidate_repository import CandidateRepository
+from backend.repositories.job_repository import JobRepository
 from backend.schemas import ProfileData
 
 pytestmark = pytest.mark.browser
@@ -34,6 +35,7 @@ class Gate:
 def browser_env(settings):
     gate, calls, contexts, requests = Gate(), [], [], []
     second_image = threading.Event()
+    image_responses = {}
 
     async def handler(command, services, emit):
         calls.append((command.action, dict(command.input)))
@@ -41,9 +43,11 @@ def browser_env(settings):
         images = [x for x in calls if x[0] == 'extract_jobs' and x[1].get('document_id')]
         if len(images) > 1:
             second_image.set()
+        if command.action == 'extract_jobs' and command.input.get('document_id') and len(images) in image_responses:
+            return image_responses[len(images)]
         if command.action == 'extract_jobs' and command.human_input['text'] == 'missing-company':
             job = {**deepcopy(JOBS[0]), 'company': '', 'title': '需要补齐的岗位'}
-            return AgentResponse(kind='job_drafts', data={'jobs': [job], 'notice': '缺失字段测试样例'})
+            return AgentResponse(kind='job_drafts', data=job)
         return await demo_handle(command, services, emit)
 
     app = create_app(settings, handler=handler)
@@ -84,7 +88,7 @@ def browser_env(settings):
             yield {'page': page, 'url': f'http://127.0.0.1:{port}', 'repo': repo,
                    'candidate': candidate, 'app': app, 'gate': gate, 'calls': calls,
                    'contexts': contexts, 'requests': requests,
-                   'second_image': second_image, 'errors': errors}
+                   'second_image': second_image, 'image_responses': image_responses, 'errors': errors}
             browser.close()
     finally:
         gate.release.set()
@@ -108,6 +112,18 @@ def seed_jobs(env):
 
 def row(page, item):
     return page.locator(f'[data-job-row="{item["id"]}"]')
+
+
+def seed_legacy_job(env, **fields):
+    with env['app'].state.database.session_factory.begin() as session:
+        job_id = JobRepository(session).add({**deepcopy(JOBS[0]), **fields}).id
+    return env['repo'].job(job_id)
+
+
+def assert_required_job_fields(form):
+    fields = form.locator('[name]').evaluate_all('(nodes) => Object.fromEntries(nodes.map(n => [n.name, n.required]))')
+    assert fields == dict.fromkeys(('company', 'title', 'city', 'address', 'salary_min', 'salary_max',
+                                    'experience_years', 'education', 'job_description', 'job_requirement'), True)
 
 
 def open_chat(page):
@@ -138,11 +154,25 @@ def image_files(tmp_path):
     return [str(path) for path in paths]
 
 
-def test_default_home_has_only_three_entries(browser_env):
+def import_images(page, files):
+    with page.expect_file_chooser() as chooser:
+        page.get_by_role('button', name='导入截图', exact=True).click()
+    chooser.value.set_files(files)
+
+
+@pytest.mark.parametrize('has_jobs', [False, True], ids=['empty', 'with-jobs'])
+def test_default_home_has_only_three_entries(browser_env, has_jobs):
     env, page = browser_env, browser_env['page']
-    seed_jobs(env)
+    if has_jobs:
+        seed_jobs(env)
     visit(env, '')
     expect(page.locator('#page-title')).to_have_text('岗位池')
+    expect(page.locator('.toolbar .actions button')).to_have_text(['导入截图', '粘贴招聘原文'])
+    expect(page.locator('[data-action=new-job], [data-action=sample-jobs]')).to_have_count(0)
+    expect(page.locator('[data-job-row]')).to_have_count(2 if has_jobs else 0)
+    if not has_jobs:
+        expect(page.locator('.job-list')).to_contain_text('还没有导入岗位')
+        expect(page.locator('.job-list')).to_contain_text('通过上方的“导入截图”或“粘贴招聘原文”开始。')
     assert page.locator('nav [data-page]').evaluate_all('(nodes) => nodes.map(n => n.dataset.page)') == ['resume', 'knowledge', 'jobs']
     expect(page.locator('#evaluate-selection')).to_have_count(0)
     assert '总分' not in page.locator('#view').inner_text()
@@ -351,9 +381,6 @@ def test_incomplete_job_draft_can_be_corrected_before_saving(browser_env):
     env, page = browser_env, browser_env['page']
     visit(env)
     paste_jobs(page, 'missing-company')
-    page.get_by_role('button', name='确认入库', exact=True).click()
-    expect(page.locator('#toast')).to_contain_text('请补充公司')
-    assert env['repo'].jobs()['total'] == 0
     page.locator('#editor input[name=company]').fill('补齐后的公司')
     page.get_by_role('button', name='确认入库', exact=True).click()
     expect(page.locator('#editor')).not_to_be_visible()
@@ -361,26 +388,76 @@ def test_incomplete_job_draft_can_be_corrected_before_saving(browser_env):
     assert env['repo'].jobs()['total'] == 1
 
 
-def test_partial_job_requires_explicit_blind_spot_confirmation(browser_env):
+def test_partial_job_requires_complete_fields_before_import(browser_env):
     env, page = browser_env, browser_env['page']
     visit(env)
     page.locator('#scenario').select_option('partial')
     paste_jobs(page)
-    first = page.locator('[data-draft-index="0"]')
-    expect(first.locator('[data-blind=address]')).not_to_be_checked()
-    page.get_by_role('button', name='确认入库', exact=True).click()
-    expect(page.locator('#toast')).to_contain_text('请补充办公地址')
+    form = page.locator('#job-draft-form')
+    assert_required_job_fields(form)
+    address = form.locator('[name=address]')
+    save = page.get_by_role('button', name='确认入库', exact=True)
+    save.click()
+    assert address.evaluate('n => n.validity.valueMissing')
+    for value in ('   ', ' 未披露 '):
+        address.fill(value)
+        save.click()
+        expect(page.locator('#toast')).to_contain_text('请补齐岗位信息')
+        expect(form).to_be_visible()
+    assert ('POST', '/api/jobs') not in env['requests']
     assert env['repo'].jobs()['total'] == 0
-    first.locator('[data-blind=address]').check()
-    first.locator('[name=blind_address]').fill('')
-    page.get_by_role('button', name='确认入库', exact=True).click()
-    expect(page.locator('#toast')).to_contain_text('盲区说明')
-    first.locator('[name=blind_address]').fill('已查看原图，招聘方没有披露具体地点')
-    page.get_by_role('button', name='确认入库', exact=True).click()
+    address.fill('杭州滨江区')
+    form.locator('[name=experience_years]').fill('0')
+    save.click()
     expect(page.locator('#editor')).not_to_be_visible()
     items = env['repo'].jobs()['items']
-    assert len(items) == 2
-    assert any(x['data']['blind_spots'].get('address') == '已查看原图，招聘方没有披露具体地点' for x in items)
+    assert len(items) == 1
+    item = items[0]
+    assert item['data']['address'] == '杭州滨江区'
+    assert item['data']['experience_years'] == 0
+    assert item['data']['evidence'] == []
+    assert env['requests'].count(('POST', '/api/jobs')) == 1
+    row(page, item).locator('[data-job-details] > summary').click()
+    expect(row(page, item)).to_contain_text('杭州滨江区')
+    expect(row(page, item).get_by_role('button', name='评估', exact=True)).to_be_enabled()
+
+
+def test_legacy_job_requires_complete_fields_on_edit_and_survives_reload(browser_env):
+    env, page = browser_env, browser_env['page']
+    item = seed_legacy_job(env, experience_years=None, education='')
+    visit(env)
+    row(page, item).locator('[data-job-details] > summary').click()
+    expect(row(page, item)).to_contain_text('未披露')
+    row(page, item).get_by_role('button', name='编辑岗位', exact=True).click()
+    form = page.locator('#job-form')
+    assert_required_job_fields(form)
+    form.locator('[name=job_description]').fill('负责服务端开发')
+    form.locator('[name=job_requirement]').fill('熟悉 Python')
+    form.locator('[name=experience_years]').fill('0')
+    education = form.locator('[name=education]')
+    education.fill('   ')
+    save = page.get_by_role('button', name='保存岗位', exact=True)
+    save.click()
+    expect(page.locator('#toast')).to_contain_text('请补齐岗位信息')
+    education.fill('本科及以上')
+    upper = form.locator('[name=salary_max]')
+    upper.fill('')
+    save.click()
+    assert upper.evaluate('n => n.validity.valueMissing')
+    update = ('PUT', '/api/jobs/' + item['id'])
+    assert update not in env['requests']
+    assert env['repo'].job(item['id']) == item
+    upper.fill('32000')
+    save.click()
+    expect(page.locator('#editor')).not_to_be_visible()
+    saved = env['repo'].job(item['id'])['data']
+    assert saved['experience_years'] == 0 and saved['education'] == '本科及以上'
+    assert saved['job_description'] == '负责服务端开发' and saved['job_requirement'] == '熟悉 Python'
+    assert saved['salary_min'] == JOBS[0]['salary_min'] and saved['salary_max'] == 32000
+    assert env['requests'].count(update) == 1
+    page.reload()
+    expect(row(page, item)).to_contain_text('负责服务端开发')
+    expect(row(page, item)).to_contain_text('熟悉 Python')
 
 
 def test_interview_reload_and_report_stay_with_the_correct_job(browser_env):
@@ -445,7 +522,8 @@ def test_finishing_image_clarification_clears_remaining_import_queue(browser_env
     assert not env['second_image'].wait(.3)
 
 
-def test_images_are_uploaded_one_at_a_time_after_confirmation(browser_env, tmp_path):
+@pytest.mark.parametrize('skip_first', [False, True])
+def test_images_are_uploaded_one_at_a_time_after_confirmation(browser_env, tmp_path, skip_first):
     env, page = browser_env, browser_env['page']
     visit(env)
     with page.expect_file_chooser() as chooser:
@@ -453,11 +531,93 @@ def test_images_are_uploaded_one_at_a_time_after_confirmation(browser_env, tmp_p
     chooser.value.set_files(image_files(tmp_path))
     expect(page.locator('#editor')).to_contain_text('确认待导入岗位')
     assert len([x for x in env['requests'] if x == ('POST', '/api/documents')]) == 1
+    if skip_first:
+        page.get_by_label('跳过此条').check()
     page.get_by_role('button', name='确认入库', exact=True).click()
     expect(page.locator('#editor')).to_contain_text('确认待导入岗位')
     page.wait_for_function('document.querySelectorAll(".file-row").length >= 2')
     assert len([x for x in env['requests'] if x == ('POST', '/api/documents')]) == 2
-    page.get_by_role('button', name='取消', exact=True).click()
+    assert env['second_image'].wait(5)
+    ids = [args['document_id'] for action, args in env['calls'] if action == 'extract_jobs']
+    assert len(ids) == len(set(ids)) == 2
+    expect(page.locator(f'#editor a[href="/api/documents/{ids[1]}/content"]')).to_be_visible()
+    page.get_by_role('button', name='确认入库', exact=True).click()
+    expect(page.locator('#editor')).not_to_be_visible()
+    jobs = env['repo'].jobs()['items']
+    expected = ids[1:] if skip_first else ids
+    assert len(jobs) == len(expected)
+    assert {job['data']['evidence'][0]['document_id'] for job in jobs} == set(expected)
+
+
+@pytest.mark.parametrize('continue_batch', [True, False], ids=['continue', 'cancel'])
+def test_folded_image_waits_for_user_before_next_upload(browser_env, tmp_path, continue_batch):
+    env, page = browser_env, browser_env['page']
+    env['image_responses'][1] = AgentResponse(
+        status='needs_input', kind='chat', data={'message': '请补充地址'},
+        pending_input={'kind': 'question', 'prompt': '请补充地址'}, state={'complete': None},
+    )
+    visit(env)
+    with page.expect_response(lambda r: r.url.endswith('/api/runs') and r.request.method == 'POST') as first:
+        import_images(page, image_files(tmp_path))
+    dialog = page.locator('#editor')
+    expect(dialog).to_contain_text('当前截图的岗位正文被折叠')
+    expect(dialog).to_contain_text('a.png')
+    proceed = dialog.get_by_role('button', name='跳过并继续下一张', exact=True)
+    expect(proceed).to_be_visible()
+    run = page.request.get(env['url'] + '/api/runs/' + first.value.json()['id']).json()
+    assert run['status'] == 'failed' and run['result']['data']['code'] == 'JOB_TEXT_FOLDED'
+    assert run['pending_input'] is None
+    assert not env['second_image'].wait(.3)
+    assert env['requests'].count(('POST', '/api/documents')) == 1
+    assert env['repo'].jobs()['total'] == 0
+
+    if continue_batch:
+        proceed.click()
+        expect(dialog).to_contain_text('确认待导入岗位')
+        ids = [args['document_id'] for action, args in env['calls'] if action == 'extract_jobs']
+        assert len(set(ids)) == len(ids) == 2
+        expect(page.locator(f'.file-row a[href="/api/documents/{ids[1]}/content"]')).to_have_text('b.png')
+        expect(dialog.locator(f'a[href="/api/documents/{ids[1]}/content"]')).to_be_visible()
+        assert env['repo'].jobs()['total'] == 0
+        dialog.get_by_role('button', name='确认入库', exact=True).click()
+        expect(page.locator('#toast')).to_contain_text('岗位已入库')
+        job, = env['repo'].jobs()['items']
+        assert [e['document_id'] for e in job['data']['evidence']] == [ids[1]]
+        assert env['requests'].count(('POST', '/api/jobs')) == 1
+        assert env['requests'].count(('POST', '/api/documents')) == 2
+        assert env['requests'].count(('POST', '/api/runs')) == 2
+    else:
+        dialog.get_by_role('button', name='取消', exact=True).click()
+        expect(dialog).not_to_be_visible()
+        expect(page.get_by_role('button', name='导入截图', exact=True)).to_be_enabled()
+        assert not env['second_image'].wait(.3)
+        assert env['requests'].count(('POST', '/api/documents')) == 1
+        assert env['requests'].count(('POST', '/api/runs')) == 1
+        assert ('POST', '/api/jobs') not in env['requests']
+        assert env['repo'].jobs()['total'] == 0
+
+
+@pytest.mark.parametrize('last_folded', [True, False], ids=['last-folded', 'ordinary-failure'])
+def test_failed_image_stops_without_retry_or_continue(browser_env, tmp_path, last_folded):
+    env, page = browser_env, browser_env['page']
+    visit(env)
+    files = image_files(tmp_path)
+    if last_folded:
+        env['image_responses'][1] = AgentResponse(kind='job_drafts', data={**JOBS[0], 'complete': None})
+        files = files[:1]
+        message = '岗位正文被折叠'
+    else:
+        page.locator('#scenario').select_option('fail')
+        message = '固定的失败场景'
+    import_images(page, files)
+    expect(page.locator('#toast')).to_contain_text(message)
+    expect(page.locator('#editor')).not_to_be_visible()
+    expect(page.get_by_role('button', name='导入截图', exact=True)).to_be_enabled()
+    assert not env['second_image'].wait(.3)
+    assert env['requests'].count(('POST', '/api/documents')) == 1
+    assert env['requests'].count(('POST', '/api/runs')) == 1
+    assert ('POST', '/api/jobs') not in env['requests']
+    assert env['repo'].jobs()['total'] == 0
 
 
 def test_upload_413_stops_batch_without_retry(browser_env, tmp_path):
@@ -473,14 +633,15 @@ def test_upload_413_stops_batch_without_retry(browser_env, tmp_path):
 
     visit(env)
     page.route('**/api/documents', intercept)
-    with page.expect_file_chooser() as chooser:
-        page.get_by_role('button', name='导入截图', exact=True).click()
-    chooser.value.set_files(image_files(tmp_path))
+    import_images(page, image_files(tmp_path))
     expect(page.locator('#global-error')).to_contain_text('413')
     expect(page.locator('#toast')).to_contain_text('不会重试')
+    expect(page.locator('#editor')).not_to_be_visible()
+    expect(page.get_by_role('button', name='导入截图', exact=True)).to_be_enabled()
     page.wait_for_timeout(300)
     assert len(attempts) == 1
     assert not env['calls']
+    assert env['repo'].jobs()['total'] == 0
 
 
 def test_knowledge_upload_and_manual_edit(browser_env, tmp_path):
@@ -534,10 +695,10 @@ def test_page_back_preserves_answer_and_job_editor(browser_env):
     page.go_back()
     expect(row(page, a).get_by_role('textbox', name='面试回答')).to_have_value('离开页面前的思路')
     row(page, a).get_by_role('button', name='编辑岗位').click()
-    page.locator('#job-form [name=notes]').fill('未保存的岗位备注')
+    page.locator('#job-form [name=job_requirement]').fill('未保存的任职要求')
     page.get_by_role('button', name='取消', exact=True).click()
     expect(page.locator('#editor')).to_be_visible()
-    expect(page.locator('#job-form [name=notes]')).to_have_value('未保存的岗位备注')
+    expect(page.locator('#job-form [name=job_requirement]')).to_have_value('未保存的任职要求')
     page.once('dialog', lambda dialog: dialog.accept())
     page.get_by_role('button', name='取消', exact=True).click()
     expect(page.locator('#editor')).not_to_be_visible()
@@ -598,9 +759,7 @@ def test_candidate_gate_and_failed_extraction_are_explicit(browser_env):
 
 def test_empty_names_and_untrusted_text_are_displayed_safely(browser_env):
     env, page = browser_env, browser_env['page']
-    item = env['repo'].save_job({**deepcopy(JOBS[0]), 'company': '', 'title': '',
-                               'jd_text': '<img src=x onerror="window.untrusted=true">',
-                               'blind_spots': {'company': '未披露名称', 'title': '未披露职位名'}})
+    item = seed_legacy_job(env, company='', title='', job_description='<img src=x onerror="window.untrusted=true">')
     visit(env)
     row(page, item).get_by_role('button', name='未披露职位', exact=True).click()
     expect(row(page, item)).to_contain_text('未披露公司')
@@ -633,7 +792,7 @@ def test_profile_partial_draft_requires_manual_completion(browser_env):
     visit(env, 'resume')
     page.locator('#scenario').select_option('partial')
     page.get_by_role('button', name='查看示例画像').click()
-    expect(page.locator('#editor')).to_contain_text('固定缺项示例')
+    expect(page.locator('#editor')).to_contain_text('固定模拟数据')
     page.get_by_role('button', name='填入画像表单').click()
     expect(page.locator('#profile-form [name=projects]')).to_have_value('')
     page.get_by_role('button', name='保存并确认画像与条件').click()
@@ -663,24 +822,14 @@ def test_chat_proposal_does_not_overwrite_dirty_form_or_revision(browser_env):
     assert env['candidate'].get_all()['profile']['projects'] == PROFILE['projects']
 
 
-def test_legacy_incomplete_job_is_gated_and_aliases_stay_in_workbench(browser_env):
+def test_undisclosed_job_is_actionable_and_aliases_stay_in_workbench(browser_env):
     env, page = browser_env, browser_env['page']
-    a, _ = seed_jobs(env)
-
-    def incomplete(route):
-        response = route.fetch()
-        data = response.json()
-        for item in data['items']:
-            if item['id'] == a['id']:
-                item.update(ready=False, missing=[{'field': 'address', 'label': '办公地址'}])
-                item['data']['address'] = ''
-        route.fulfill(response=response, json=data)
-
-    page.route('**/api/jobs?*', incomplete)
+    a = seed_legacy_job(env, address='')
     visit(env)
-    expect(row(page, a)).to_contain_text('待完善')
-    expect(row(page, a).get_by_role('button', name='评估', exact=True)).to_be_disabled()
-    expect(row(page, a).get_by_role('button', name='模拟面试', exact=True)).to_be_disabled()
+    row(page, a).locator('[data-job-details] > summary').click()
+    expect(row(page, a)).to_contain_text('未披露')
+    expect(row(page, a).get_by_role('button', name='评估', exact=True)).to_be_enabled()
+    expect(row(page, a).get_by_role('button', name='模拟面试', exact=True)).to_be_enabled()
     visit(env, 'preferences')
     expect(page.locator('#page-title')).to_have_text('简历画像')
     for alias in ('evaluate', 'interview'):

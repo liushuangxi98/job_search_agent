@@ -11,7 +11,7 @@ const labels = {
   summary: '个人简介', commute_mode: '出行偏好',
   experience: '工作经历', projects: '项目经历', direction: '求职方向', city: '城市',
   commute_origin: '通勤起点', salary_min: '月薪下限', salary_max: '月薪上限',
-  company: '公司', title: '职位', address: '办公地址', jd_text: '岗位描述', salary: '薪资',
+  company: '公司', title: '职位', address: '办公地址', job_description: '岗位描述和职责', job_requirement: '任职要求', salary: '薪资',
 };
 const requiredProfileKeys = [
   'name', 'education', 'major', 'experience_years', 'skills', 'experience', 'projects',
@@ -19,7 +19,7 @@ const requiredProfileKeys = [
 ];
 const editableProfileKeys = requiredProfileKeys;
 const commuteModes = {'': '请选择', '公共交通': '公共交通', '驾车': '驾车'};
-const jobKeys = ['company', 'title', 'city', 'address', 'jd_text', 'salary'];
+const jobTextKeys = ['company', 'title', 'city', 'address', 'job_description', 'job_requirement', 'education'];
 const actionNames = {parse_resume: '简历整理', extract_jobs: '岗位提取', index_knowledge: '题库整理', evaluate: '岗位评估', interview: '模拟面试', chat: '聊天'};
 const state = {
   page: 'jobs', params: new URLSearchParams(), health: null, generation: 0,
@@ -144,13 +144,10 @@ function candidateFields(profile) {
     ${field('期望月薪上限（元）', 'salary_max', profile.salary_max ?? '', salary)}
   </div>${profileEvidence(profile.evidence)}`;
 }
-function diagnosisHTML(data) {
-  return `<div class="tip">${esc(data.notice || '请人工核对；尚未确认保存。')}${(data.diagnosis || []).length ? `<ul>${data.diagnosis.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</div>`;
-}
 async function resumePage() {
   const [candidate, docs, memories] = await Promise.all([api('/candidate'), api('/documents?kind=resume'), api('/memories')]);
   state.candidate = candidate;
-  const data = state.profileDraft || candidate;
+  const profile = state.profileDraft || candidate.profile;
   const draft = state.drafts.candidate;
   const memoryBody = memories.items.map(x => `<div class="memory-row"><p>${esc(x.data.content)}<small class="prose">${esc(x.data.evidence)}</small></p>${button('编辑', 'edit-memory', idAttr(x.id), 'ghost small')}${button('移除', 'delete-memory', idAttr(x.id), 'ghost small')}</div>`).join('');
   return `<div class="page-intro"><div><h2>让经历与期待，都有清晰的表达</h2><p>整理简历和求职条件，核对后一起确认。所有标 * 项均为必填。</p></div><span class="badge ${candidate.confirmed && !draft && !state.profileDraft ? 'green' : 'amber'}">${draft || state.profileDraft ? '草稿待确认' : candidate.confirmed ? '已确认' : '待完善'}</span></div>
@@ -158,10 +155,9 @@ async function resumePage() {
       ${card('简历资料', 'PDF / DOCX · 单文件不超过 16 MiB', uploadBox('resume', '上传简历', '原件会保留，提取结果需要人工确认') + fileRows(docs.items, 'parse-resume') + (isDemo() ? button('查看示例画像', 'sample-profile', 'data-start', 'ghost small') : ''))}
       ${card('已确认的记忆', '你可以查看、修改或移除', memoryBody || '<p class="caption">暂无已确认记忆。</p>', button('补充一条记忆', 'add-memory', '', 'ghost small'))}
     </div><article class="card"><header class="card-head"><div><h2>我的简历画像</h2><p>人工核对 · 薪资仅作资料展示</p></div><span class="badge">修订 ${candidate.revision}</span></header><div class="card-body">
-      ${state.profileDraft ? diagnosisHTML(state.profileDraft) : ''}
       ${draft ? `<div class="tip">${draft.revision !== candidate.revision ? '已保存资料有更新；未保存输入已保留，直接保存会提示版本冲突。' : '未保存的输入已保留。'} ${button('读取已保存资料', 'discard-candidate', '', 'ghost small')}</div>` : ''}
-      <form id="profile-form"><div id="candidate-errors" class="error-banner" role="alert" hidden></div>${candidateFields(data.profile)}<div class="form-actions"><button>保存并确认画像与条件</button></div></form>
-      ${(data.profile.evidence || []).length ? `<details class="detail-section"><summary>原始提取依据</summary><pre class="prose">${esc(JSON.stringify(data.profile.evidence, null, 2))}</pre></details>` : ''}
+      <form id="profile-form"><div id="candidate-errors" class="error-banner" role="alert" hidden></div>${candidateFields(profile)}<div class="form-actions"><button>保存并确认画像与条件</button></div></form>
+      ${(profile.evidence || []).length ? `<details class="detail-section"><summary>原始提取依据</summary><pre class="prose">${esc(JSON.stringify(profile.evidence, null, 2))}</pre></details>` : ''}
     </div></article></div>`;
 }
 function commuteHTML(commutes = {}) {
@@ -201,27 +197,30 @@ function historyHTML(jobId) {
   return `<details class="history" data-history="${esc(jobId)}" ${state.openHistory.has(jobId) ? 'open' : ''}><summary>评估与面试历史 · ${reports.length} 次</summary>
     <label class="history-controls"><span class="caption">查看记录</span><select data-report-select="${esc(jobId)}" aria-label="选择报告">${reports.map(x => `<option value="${esc(x.id)}" ${x.id === current.id ? 'selected' : ''}>${when(x.created_at)} · ${x.kind === 'evaluation' ? '评估' : '面试'} · ${esc(x.data.title || '报告')}${x.is_demo ? '（模拟）' : ''}</option>`).join('')}</select></label><article class="report" data-report-body="${esc(jobId)}">${reportContent(current, jobId)}</article></details>`;
 }
+function jobEvidence(items) {
+  const documentId = items.find(item => item.document_id)?.document_id;
+  const document = state.documents.find(item => item.id === documentId);
+  const link = document ? `<p><a href="/api/documents/${encodeURIComponent(document.id)}/content" target="_blank" rel="noopener">${esc(document.filename)} ↗</a></p>` : '';
+  const quotes = items.map(item => `<li><small>${esc(item.locator)}</small><p class="prose">${esc(item.text || '未记录原文片段')}</p></li>`).join('');
+  return `<section class="detail-section"><h3>提取依据</h3>${link}${quotes ? `<ul>${quotes}</ul>` : '<p class="caption">暂无提取依据。</p>'}</section>`;
+}
 function jobRow(item) {
   const data = item.data;
   const reports = jobReports(item.id);
   const latest = reports.find(x => x.kind === 'evaluation');
   const result = latest?.data.jobs?.find(x => x.job_id === item.id);
-  const blocked = !state.candidate?.confirmed || !item.ready;
-  const missing = (item.missing || []).map(x => x.label).join('、');
-  const sources = state.documents.filter(x => (data.source_ids || []).includes(x.id));
+  const blocked = !state.candidate?.confirmed;
   return `<article class="job-row" data-job-row="${esc(item.id)}"><div class="job-overview">
-    <div><h3>${button(esc(data.title || '未披露职位'), 'open-job', idAttr(item.id), 'job-title')}</h3><small>${esc(data.company || '未披露公司')} · ${esc(data.city || '城市未知')}</small></div>
-    <div>${money(data.salary_min)} — ${money(data.salary_max)}<small>月薪${data.salary_note ? ' · ' + esc(data.salary_note) : ''}</small></div>
-    <div>${result ? `<span class="job-score">${score(result.match_score)}<small>最近匹配分${latest.is_demo ? ' · 模拟' : ''}</small></span>` : `<span class="badge ${item.ready ? '' : 'amber'}">${item.ready ? '待评估' : '待完善'}</span><small>${item.ready ? '尚无匹配结果' : esc(missing)}</small>`}</div>
+    <div><h3>${button(esc(data.title || '未披露职位'), 'open-job', idAttr(item.id), 'job-title')}</h3><small>${esc(data.company || '未披露公司')} · ${esc(data.city || '未披露')}</small></div>
+    <div>${data.salary_min == null ? '未披露' : money(data.salary_min)} — ${data.salary_max == null ? '未披露' : money(data.salary_max)}<small>月薪</small></div>
+    <div>${result ? `<span class="job-score">${score(result.match_score)}<small>最近匹配分${latest.is_demo ? ' · 模拟' : ''}</small></span>` : `<span class="badge">待评估</span><small>尚无匹配结果</small>`}</div>
     <div class="actions">${button('评估', 'evaluate-job', `${idAttr(item.id)} data-start data-blocked="${blocked}"`, 'secondary small')}${button('模拟面试', 'interview-job', `${idAttr(item.id)} data-start data-blocked="${blocked}"`, 'small')}</div>
     </div><details class="job-details" data-job-details="${esc(item.id)}" ${state.expanded.has(item.id) ? 'open' : ''}><summary>岗位详情、评估与面试记录${reports.length ? `（${reports.length}）` : ''}</summary>
-      ${!item.ready ? `<div class="tip">待完善：${esc(missing)}。逐项补充或人工确认盲区后才能开始。${button('完善岗位', 'edit-job', idAttr(item.id), 'ghost small')}</div>` : ''}
       <div data-job-run="${esc(item.id)}"></div>
-      <dl class="job-meta"><dt>办公地址</dt><dd>${esc(data.address || '未知')}</dd><dt>薪资说明</dt><dd>${esc(data.salary_note || '未提供')}</dd></dl>
-      <h3>招聘原文</h3><p class="prose">${esc(data.jd_text || '未知')}</p>
-      ${Object.entries(data.blind_spots || {}).map(([key, value]) => `<p class="blind-note">${esc(labels[key] || key)} · 招聘方未披露：${esc(value)}</p>`).join('')}
-      ${data.notes ? `<section class="detail-section"><h3>我的备注</h3><p class="prose">${esc(data.notes)}</p></section>` : ''}
-      <section class="detail-section"><h3>原始资料</h3>${sources.length ? sources.map(x => `<p><a href="/api/documents/${encodeURIComponent(x.id)}/content" target="_blank" rel="noopener">${esc(x.filename)} ↗</a></p>`).join('') : '<p class="caption">手动记录或固定模拟资料。</p>'}</section>
+      <dl class="job-meta"><dt>办公地址</dt><dd>${esc(data.address || '未披露')}</dd><dt>最低工作年限</dt><dd>${data.experience_years == null ? '未披露' : esc(data.experience_years) + ' 年'}</dd><dt>学历要求</dt><dd>${esc(data.education || '未披露')}</dd></dl>
+      <h3>岗位描述和职责</h3><p class="prose">${esc(data.job_description || '未披露')}</p>
+      <h3>任职要求</h3><p class="prose">${esc(data.job_requirement || '未披露')}</p>
+      ${jobEvidence(data.evidence || [])}
       <div class="actions detail-section">${button('编辑岗位', 'edit-job', idAttr(item.id), 'secondary small')}${button('移除岗位', 'delete-job', idAttr(item.id), 'ghost small')}</div>
       ${historyHTML(item.id)}</details></article>`;
 }
@@ -241,11 +240,11 @@ async function jobsPage() {
     catch (error) { if (error.status !== 404) throw error; missingJob = true; }
   }
   const linkedReport = state.reports.find(x => x.id === state.params.get('report'));
-  return `<div class="page-intro"><div><h2>值得了解的下一站</h2><p>每个岗位独立查看匹配依据、通勤路线与面试记录。</p></div>${button('＋ 添加岗位', 'new-job')}</div>
+  return `<div class="page-intro"><div><h2>值得了解的下一站</h2><p>每个岗位独立查看匹配依据、通勤路线与面试记录。</p></div></div>
     ${!candidate.confirmed ? '<div class="tip">请先完善并确认个人资料，才能评估或面试。<a href="#/resume">前往简历画像 →</a></div>' : ''}
-    <div class="toolbar"><form id="job-search" class="search"><input name="q" aria-label="搜索岗位" placeholder="搜索公司、职位或城市" value="${esc(state.query)}"><button class="secondary">搜索</button></form><div class="actions">${button('导入截图', 'upload', 'data-kind="image" data-start', 'secondary')}${button('粘贴招聘原文', 'paste-jd', 'data-start', 'secondary')}${isDemo() ? button('查看示例岗位', 'sample-jobs', 'data-start', 'ghost') : ''}</div></div>
+    <div class="toolbar"><form id="job-search" class="search"><input name="q" aria-label="搜索岗位" placeholder="搜索公司、职位或城市" value="${esc(state.query)}"><button class="secondary">搜索</button></form><div class="actions">${button('导入截图', 'upload', 'data-kind="image" data-start', 'secondary')}${button('粘贴招聘原文', 'paste-jd', 'data-start', 'secondary')}</div></div>
     ${missingJob ? `<div class="tip">关联岗位已移除或不存在。${linkedReport ? '下方保留当时的报告与资料快照。' : '请从岗位池重新选择。'}</div>${linkedReport ? `<article class="report">${reportContent(linkedReport, selected)}</article>` : ''}` : ''}
-    <div data-page-run="jobs"></div><div class="job-list">${state.jobs.length ? state.jobs.map(jobRow).join('') : card('岗位池', '从一个感兴趣的岗位开始', empty('还没有添加岗位', '导入招聘截图、粘贴原文，或手动填写。', button('手动添加岗位', 'new-job', '', 'secondary')))}</div>
+    <div data-page-run="jobs"></div><div class="job-list">${state.jobs.length ? state.jobs.map(jobRow).join('') : card('岗位池', '从一个感兴趣的岗位开始', empty('还没有导入岗位', '通过上方的“导入截图”或“粘贴招聘原文”开始。'))}</div>
     <div class="table-footer"><span>共 ${jobs.total} 个岗位</span><div class="actions">${button('上一页', 'jobs-prev', state.offset === 0 ? 'disabled' : '', 'ghost small')}<span>${Math.floor(state.offset / 20) + 1}</span>${button('下一页', 'jobs-next', state.offset + 20 >= jobs.total ? 'disabled' : '', 'ghost small')}</div></div>
     ${docs.items.length ? `<details class="detail-section"><summary>已上传的招聘截图 · ${docs.items.length} 份</summary>${fileRows(docs.items, 'extract-image')}</details>` : ''}`;
 }
@@ -414,7 +413,15 @@ async function settled(run) {
   state.processed.add(run.id);
   const result = run.result || {};
   if (run.status === 'failed') {
-    cancelBatch(state.runBatches.get(run.id));
+    const batch = state.runBatches.get(run.id);
+    if (run.action === 'extract_jobs' && result.data?.code === 'JOB_TEXT_FOLDED' &&
+        batch?.kind === 'image' && batch === state.batch && batch.queue.length) {
+      state.modal = {kind: 'folded-image', batch};
+      openDialog('当前截图的岗位正文被折叠', `<p>${esc(batch.filename)}：${esc(result.data.message)}</p>`,
+        button('跳过并继续下一张', 'continue-images'));
+      return;
+    }
+    cancelBatch(batch);
     showError(new Error(result.data?.message || '运行失败，请手动整理资料。'));
     return;
   }
@@ -491,7 +498,6 @@ function cancelBatch(batch) {
 }
 function openDialog(title, body, footer = '') {
   $('#editor').innerHTML = `<header><h2>${esc(title)}</h2>${button('✕', 'close-modal', 'aria-label="关闭编辑"', 'ghost')}</header><div class="dialog-body">${body}</div><footer>${button('取消', 'close-modal', '', 'secondary')}${footer}</footer>`;
-  updateBlindOptions();
   if (!$('#editor').open) $('#editor').showModal();
 }
 function closeDialog() {
@@ -505,78 +511,64 @@ function dismissDialog() {
   closeDialog();
   if (modal?.batch?.saving) toast('已取消，正在停止后续导入；已发送的请求可能已经保存。');
 }
-function jobFields(data, confirmedBlindSpots = false) {
-  const controls = {
-    company: field('公司名称', 'company', data.company, {maxLength: 200}),
-    title: field('职位名称', 'title', data.title, {maxLength: 200}),
-    city: field('工作城市', 'city', data.city, {maxLength: 100}),
-    address: field('办公地址', 'address', data.address, {maxLength: 300}),
-    jd_text: field('岗位描述 JD', 'jd_text', data.jd_text, {area: true, rows: 5, maxLength: 50000}),
-    salary: `<div class="form-grid">${field('月薪下限（元）', 'salary_min', data.salary_min ?? '', {type: 'number', max: 10000000})}${field('月薪上限（元）', 'salary_max', data.salary_max ?? '', {type: 'number', max: 10000000})}</div>`,
-  };
-  return jobKeys.map(key => {
-    const reason = data.blind_spots?.[key] || '';
-    // Agent 草稿中的盲区是建议；新导入时必须由用户逐项勾选。
-    const checked = confirmedBlindSpots && !!reason;
-    return `<div class="blind-field ${['jd_text', 'salary'].includes(key) ? 'full' : ''}" data-blind-field="${key}">${controls[key]}<label class="blind-option"><input type="checkbox" data-blind="${key}" ${checked ? 'checked' : ''}> ${esc(labels[key])}：招聘方未披露，已人工核对</label><label class="field" data-blind-reason="${key}" ${checked || reason ? '' : 'hidden'}><span>盲区说明（选择未披露时必填）</span><textarea name="blind_${key}" rows="2" maxlength="2000">${esc(reason)}</textarea></label></div>`;
-  }).join('') + field('薪资补充说明', 'salary_note', data.salary_note, {full: true, maxLength: 500}) + field('我的备注', 'notes', data.notes, {area: true, rows: 2, full: true, maxLength: 5000});
-}
-function updateBlindOptions() {
-  for (const section of $('#editor').querySelectorAll('[data-blind-field]')) {
-    const key = section.dataset.blindField;
-    const names = key === 'salary' ? ['salary_min', 'salary_max'] : [key];
-    const known = names.every(name => section.querySelector(`[name="${name}"]`).value.trim());
-    const checkbox = section.querySelector('[data-blind]');
-    const reason = section.querySelector(`[name="blind_${key}"]`).value.trim();
-    section.querySelector('.blind-option').hidden = known && !checkbox.checked && !reason;
-  }
+function jobFields(data) {
+  const required = {required: true};
+  return [
+    field('公司名称', 'company', data.company, {...required, maxLength: 200}),
+    field('岗位名称', 'title', data.title, {...required, maxLength: 200}),
+    field('工作城市', 'city', data.city, {...required, maxLength: 100}),
+    field('办公地址', 'address', data.address, {...required, maxLength: 300}),
+    field('月薪下限（元）', 'salary_min', data.salary_min ?? '', {...required, type: 'number', max: 10000000}),
+    field('月薪上限（元）', 'salary_max', data.salary_max ?? '', {...required, type: 'number', max: 10000000}),
+    field('最低工作年限', 'experience_years', data.experience_years ?? '', {...required, type: 'number', min: 0, max: 80, step: 'any'}),
+    field('学历要求', 'education', data.education, {...required, maxLength: 2000}),
+    field('岗位描述和职责', 'job_description', data.job_description, {...required, area: true, full: true, rows: 5, maxLength: 50000}),
+    field('任职要求', 'job_requirement', data.job_requirement, {...required, area: true, full: true, rows: 5, maxLength: 50000}),
+  ].join('');
 }
 function readJob(root, original = {}) {
   const values = Object.fromEntries([...root.querySelectorAll('[name]')].map(x => [x.name, x.value.trim()]));
-  const data = {...original, blind_spots: {}};
-  for (const key of ['company', 'title', 'city', 'address', 'jd_text', 'salary_note', 'notes']) data[key] = values[key] || '';
-  for (const key of ['salary_min', 'salary_max']) data[key] = values[key] ? Number(values[key]) : null;
-  for (const key of jobKeys) {
-    const checked = root.querySelector(`[data-blind="${key}"]`).checked;
-    const known = key === 'salary' ? data.salary_min != null && data.salary_max != null : !!data[key];
-    if (checked) {
-      if (!values['blind_' + key]) throw new Error(`请填写${labels[key]}的盲区说明。`);
-      data.blind_spots[key] = values['blind_' + key];
-    } else if (!known) throw new Error(`请补充${labels[key]}，或逐项勾选“招聘方未披露”并说明原因。`);
+  for (const [key, value] of Object.entries(values)) {
+    if (!value || value === '未披露') throw new Error(`请补齐岗位信息：${labels[key] || key}`);
   }
+  const data = {...original};
+  for (const key of jobTextKeys) data[key] = values[key];
+  for (const key of ['salary_min', 'salary_max', 'experience_years']) data[key] = Number(values[key]);
   for (const key of ['salary_min', 'salary_max']) {
-    if (data[key] != null && (!Number.isInteger(data[key]) || data[key] < 1 || data[key] > 10000000)) throw new Error('月薪应为 1—10000000 的整数；未知请留空并确认盲区。');
+    if (!Number.isInteger(data[key]) || data[key] < 1 || data[key] > 10000000) throw new Error('月薪应为 1—10000000 的整数。');
   }
-  if (data.salary_min != null && data.salary_max != null && data.salary_min > data.salary_max) throw new Error('薪资下限不能超过上限。');
+  if (data.salary_min > data.salary_max) throw new Error('薪资下限不能超过上限。');
+  if (!Number.isFinite(data.experience_years) || data.experience_years < 0 || data.experience_years > 80) throw new Error('最低工作年限应为 0—80 年。');
   return data;
 }
 function reviewResult(run) {
   const data = run.result?.data || {};
   const kind = run.result?.kind;
+  const notice = data.notice || (run.is_demo ? '固定模拟数据，请核对后保存。' : '请核对后保存。');
+  const hint = `<p class="tip">${esc(notice)}</p>`;
   if (kind === 'profile_draft') {
     state.modal = {kind, data, batch: state.runBatches.get(run.id)};
-    openDialog('核对简历与条件草稿', diagnosisHTML(data) + `<dl class="job-meta">${editableProfileKeys.map(key => {
-      const value = key === 'commute_mode' ? commuteModes[data.profile[key]] : data.profile[key];
+    openDialog('核对简历与条件草稿', hint + `<dl class="job-meta">${editableProfileKeys.map(key => {
+      const value = key === 'commute_mode' ? commuteModes[data[key]] : data[key];
       return `<dt>${esc(labels[key])}</dt><dd class="prose">${esc(Array.isArray(value) ? value.join('、') : value ?? '待补充')}</dd>`;
-    }).join('')}</dl>` + profileEvidence(data.profile.evidence), button('填入画像表单', 'use-profile-draft'));
+    }).join('')}</dl>` + profileEvidence(data.evidence), button('填入画像表单', 'use-profile-draft'));
   } else if (kind === 'job_drafts') {
     let batch = state.runBatches.get(run.id);
     if (batch?.cancelled) { toast('该批次已结束，请重新提取需要的资料。'); return; }
     batch ||= newBatch();
     state.runBatches.set(run.id, batch);
-    state.modal = {kind, data: data.jobs || [], batch};
-    openDialog('确认待导入岗位', diagnosisHTML(data) + `<p class="caption">逐项核对资料；缺失字段需补充，或明确确认招聘方未披露。</p><form id="job-drafts-form">${(data.jobs || []).map((job, index) => `<section class="draft-job"><header><h3>岗位 ${index + 1}</h3><label class="caption"><input type="checkbox" data-skip-draft="${index}"> 跳过此条</label></header><fieldset data-draft-index="${index}"><div class="form-grid">${jobFields(job)}</div></fieldset></section>`).join('')}</form>`, '<button form="job-drafts-form" type="submit">确认入库</button>');
+    state.modal = {kind, data, batch};
+    openDialog('确认待导入岗位', hint + `<p class="caption">请补齐所有岗位字段后确认入库。明确不限工作经验时填 0。</p><form id="job-draft-form"><section class="draft-job"><label class="caption"><input type="checkbox" data-skip-draft> 跳过此条</label><fieldset><div class="form-grid">${jobFields(data)}</div>${jobEvidence(data.evidence || [])}</fieldset></section></form>`, '<button form="job-draft-form" type="submit">确认入库</button>');
   } else if (kind === 'knowledge_result') {
     state.modal = {kind, data: data.questions || [], batch: state.runBatches.get(run.id)};
-    openDialog('核对题库处理结果', diagnosisHTML(data) + (data.questions || []).map(q => `<section class="detail-section"><h3>${esc(q.question)}</h3><p class="prose">${esc(q.answer)}</p><small>${esc(q.locator || '')}</small></section>`).join(''), button('确认保存题目', 'save-questions'));
+    openDialog('核对题库处理结果', hint + (data.questions || []).map(q => `<section class="detail-section"><h3>${esc(q.question)}</h3><p class="prose">${esc(q.answer)}</p><small>${esc(q.locator || '')}</small></section>`).join(''), button('确认保存题目', 'save-questions'));
   }
   updateControls();
 }
-async function editJob(id = null) {
-  const item = id ? await api('/jobs/' + encodeURIComponent(id)) : {data: {source_ids: []}};
-  const docs = await api('/documents');
+async function editJob(id) {
+  const item = await api('/jobs/' + encodeURIComponent(id));
   state.modal = {kind: 'job', item};
-  openDialog(id ? '编辑岗位' : '添加岗位 · 人工核对', `<form id="job-form"><div class="tip">每项资料均须填写，或人工确认“招聘方未披露”并说明。原文和已知信息会一并保留。</div><div class="form-grid">${jobFields(item.data, !!id)}<label class="field full"><span>关联原始资料（可多选）</span><select name="source_ids" multiple size="3">${docs.items.map(x => `<option value="${esc(x.id)}" ${(item.data.source_ids || []).includes(x.id) ? 'selected' : ''}>${esc(x.filename)}</option>`).join('')}</select></label></div></form>`, '<button type="submit" form="job-form">保存岗位</button>');
+  openDialog('编辑岗位', `<form id="job-form"><div class="tip">请填写完整的岗位信息。提取依据仅供核对。</div><div class="form-grid">${jobFields(item.data)}</div>${jobEvidence(item.data.evidence || [])}</form>`, '<button type="submit" form="job-form">保存岗位</button>');
 }
 async function editQuestion(id = null) {
   const response = id ? await api('/knowledge/questions?limit=500') : null;
@@ -612,6 +604,7 @@ async function nextFile(batch) {
     return;
   }
   try {
+    batch.filename = file.name;
     const limit = (batch.kind === 'image' ? 8 : 16) * 1024 * 1024;
     if (file.size > limit) throw new Error(`${file.name} 超过 ${limit / 1024 / 1024} MiB 上限，已停止本批次。`);
     const body = new FormData();
@@ -632,24 +625,18 @@ async function uploadFiles(files) {
   if (occupied()) throw new Error('请先完成当前活动再上传文件。');
   await nextFile(newBatch(state.uploadKind, files));
 }
-async function saveJobDrafts(form) {
+async function saveJobDraft(form) {
   const operation = state.modal;
   if (operation?.kind !== 'job_drafts' || operation.batch.cancelled || operation.batch.saving) return;
   const batch = operation.batch;
-  // 在发送第一条请求之前，先核对全部保留的草稿。
-  const entries = [...form.querySelectorAll('[data-draft-index]')].filter(x => !x.disabled)
-    .map(section => ({section, data: readJob(section, operation.data[Number(section.dataset.draftIndex)])}));
+  const fields = form.querySelector('fieldset');
+  const job = fields.disabled ? null : readJob(fields, operation.data);
   batch.saving = true;
   form.inert = true;
   try {
-    for (const entry of entries) {
-      if (batch.cancelled) break;
-      await api('/jobs', {method: 'POST', body: entry.data});
+    if (job) {
+      await api('/jobs', {method: 'POST', body: job});
       batch.saved++;
-      entry.section.disabled = true;
-      const skip = entry.section.closest('section').querySelector('[data-skip-draft]');
-      skip.disabled = true;
-      skip.checked = true;
     }
     if (batch.cancelled) {
       await render();
@@ -658,7 +645,7 @@ async function saveJobDrafts(form) {
     }
     if (state.modal === operation) closeDialog();
     await render();
-    toast(entries.length ? '岗位已入库。' : '已跳过当前条目。');
+    toast(job ? '岗位已入库。' : '已跳过当前条目。');
     await nextFile(batch);
   } catch (error) {
     if (error.status === 413) {
@@ -717,8 +704,7 @@ function validateCandidate(form) {
 async function saveCandidate(form) {
   if (!validateCandidate(form)) return;
   const values = formData(form);
-  const source = state.profileDraft || state.candidate;
-  const profile = {...source.profile};
+  const profile = {...(state.profileDraft || state.candidate.profile)};
   for (const key of editableProfileKeys) profile[key] = values[key].trim();
   profile.skills = splitWords(values.skills);
   profile.experience_years = Number(values.experience_years);
@@ -743,6 +729,11 @@ async function resumeActivity() {
   await go(runPage(state.run) || 'jobs', {run: state.run.id, ...(jobId ? {job: jobId} : {})});
 }
 const actions = {
+  'continue-images': async () => {
+    const batch = state.modal.batch;
+    closeDialog();
+    await nextFile(batch);
+  },
   'open-chat': () => { state.chatOpen = true; renderChat(); },
   'close-chat': () => { state.chatOpen = false; renderChat(); },
   'close-modal': dismissDialog,
@@ -756,7 +747,6 @@ const actions = {
     await render();
   },
   'upload': element => chooseFiles(element.dataset.kind),
-  'new-job': () => editJob(),
   'edit-job': element => editJob(element.dataset.id),
   'open-job': element => go('jobs', {job: element.dataset.id}),
   'jobs-prev': () => { state.offset = Math.max(0, state.offset - 20); return render(); },
@@ -777,7 +767,6 @@ const actions = {
   'extract-image': element => begin('extract_jobs', {document_id: element.dataset.id}),
   'index-knowledge': element => begin('index_knowledge', {document_id: element.dataset.id}),
   'sample-profile': () => begin('parse_resume'),
-  'sample-jobs': () => begin('extract_jobs', {text: '固定模拟样例'}),
   'use-profile-draft': async () => {
     if (state.drafts.candidate && !confirm('用这份待确认草稿替换当前未保存的画像与条件？')) return;
     const data = state.modal.data;
@@ -786,11 +775,11 @@ const actions = {
     if (form) form.dataset.dirty = 'false';
     delete state.drafts.candidate;
     state.profileDraft = data;
-    const values = {...data.profile, skills: (data.profile.skills || []).join('，')};
-    values.experience_years = data.profile.experience_years ?? '';
-    values.salary_min = data.profile.salary_min ?? '';
-    values.salary_max = data.profile.salary_max ?? '';
-    values.commute_mode = data.profile.commute_mode ?? '';
+    const values = {...data, skills: (data.skills || []).join('，')};
+    values.experience_years = data.experience_years ?? '';
+    values.salary_min = data.salary_min ?? '';
+    values.salary_max = data.salary_max ?? '';
+    values.commute_mode = data.commute_mode ?? '';
     state.drafts.candidate = {values, revision: state.candidate?.revision ?? 0};
     cancelBatch(batch);
     closeDialog();
@@ -845,8 +834,8 @@ document.addEventListener('submit', async event => {
       await respond(form.dataset.runAnswer, 'answer', data.text);
     } else if (form.id === 'profile-form') {
       await saveCandidate(form);
-    } else if (form.id === 'job-drafts-form') {
-      await saveJobDrafts(form);
+    } else if (form.id === 'job-draft-form') {
+      await saveJobDraft(form);
     } else if (form.id === 'job-search') {
       state.query = data.q;
       state.offset = 0;
@@ -854,8 +843,7 @@ document.addEventListener('submit', async event => {
     } else if (form.id === 'job-form') {
       const item = state.modal.item;
       const job = readJob(form, item.data);
-      job.source_ids = new FormData(form).getAll('source_ids');
-      const result = await api('/jobs' + (item.id ? '/' + encodeURIComponent(item.id) : ''), {method: item.id ? 'PUT' : 'POST', body: item.id ? {revision: item.revision, data: job} : job});
+      const result = await api('/jobs/' + encodeURIComponent(item.id), {method: 'PUT', body: {revision: item.revision, data: job}});
       closeDialog();
       await go('jobs', {job: result.id});
       toast('岗位已确认保存。');
@@ -901,15 +889,12 @@ document.addEventListener('input', event => {
   if (event.target.form) rememberDraft(event.target.form, true);
   if (event.target.closest('#editor') && state.modal) {
     state.modal.dirty = true;
-    updateBlindOptions();
   }
 });
 document.addEventListener('change', async event => {
   const node = event.target;
   if (node.id === 'scenario') state.scenario = node.value;
-  if (node.dataset.blind) {
-    node.closest('[data-blind-field]').querySelector('[data-blind-reason]').hidden = !node.checked;
-  }
+
   if (node.dataset.skipDraft != null) {
     node.closest('section').querySelector('fieldset').disabled = node.checked;
   }

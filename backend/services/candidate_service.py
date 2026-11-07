@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from ..exceptions import AppError
 from ..repositories.candidate_repository import CandidateRepository
 from ..schemas import ProfileData, ProfileUpdate, current_profile_fields
-from .material_validation import candidate_missing
+from .material_validation import check_dict_missing
 
 
 class CandidateService:
@@ -33,7 +33,7 @@ class CandidateService:
     @staticmethod
     def workbench_data(row):
         profile = ProfileData.model_validate(current_profile_fields(row.profile)).model_dump()
-        missing = candidate_missing(profile)
+        missing = check_dict_missing(profile, ProfileData)
         return {
             'revision': row.revision, 'confirmed': row.confirmed and not missing,
             'profile': profile, 'missing': missing,
@@ -49,7 +49,7 @@ class CandidateService:
     def confirm(self, profile: dict, revision: int):
         """个人资料须完整；校验在写入前完成，整份资料用一个事务。"""
         profile = ProfileData.model_validate(profile).model_dump()
-        missing = candidate_missing(profile)
+        missing = check_dict_missing(profile, ProfileData)
         if missing:
             raise AppError(422, 'CANDIDATE_INCOMPLETE', '请补齐：' + '、'.join(item['label'] for item in missing))
         with self.session_factory.begin() as session:
@@ -84,7 +84,7 @@ class CandidateService:
             # 已确认资料的后续修改也必须保持完整，避免聊天把核心字段清空。
             should_confirm = row.confirmed if confirmed is None else confirmed
             if should_confirm:
-                missing = candidate_missing(data)
+                missing = check_dict_missing(data, ProfileData)
                 if missing:
                     raise AppError(422, 'CANDIDATE_INCOMPLETE', '请补齐：' + '、'.join(item['label'] for item in missing))
             repository.update(row, data, confirmed)

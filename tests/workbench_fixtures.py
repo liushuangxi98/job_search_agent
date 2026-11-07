@@ -18,8 +18,9 @@ def complete_profile(**changes):
 def complete_job(**changes):
     return {
         'company': '测试科技', 'title': 'Agent 应用开发', 'city': '杭州',
-        'address': '杭州市滨江区测试园区', 'jd_text': '使用 Python 开发 RAG 应用并编写自动化评测。',
-        'salary_min': 20000, 'salary_max': 30000, 'source_ids': [], 'blind_spots': {},
+        'address': '杭州市滨江区测试园区', 'job_description': '使用 Python 开发 RAG 应用并编写自动化评测。',
+        'job_requirement': '了解 Python 和 RAG', 'experience_years': 3, 'education': '本科',
+        'salary_min': 20000, 'salary_max': 30000, 'evidence': [],
         **changes,
     }
 
@@ -29,3 +30,12 @@ def candidate_payload(revision, *, profile=None):
         'revision': revision,
         'profile': complete_profile() if profile is None else profile,
     }
+
+
+def upload_image(client, name='岗位.png'):
+    import base64
+    content = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1kAAAAASUVORK5CYII=')
+    response = client.post('/api/documents', data={'kind': 'image'},
+                           files={'file': (name, content, 'image/png')})
+    assert response.status_code == 201
+    return response.json()['id']

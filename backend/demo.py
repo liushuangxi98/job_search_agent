@@ -15,12 +15,12 @@ PROFILE = {'name': '示例求职者',
 JOBS = [
     {'company': '星河科技（虚构）', 'title': 'Agent 应用开发工程师', 'city': '杭州',
      'address': '示例办公地址，待核实', 'salary_min': 20000, 'salary_max': 30000,
-     'jd_text': '【固定演示资料】使用 Python 开发 Agent 应用，了解工具调用与 RAG。',
-     'notes': '模拟资料，不代表真实招聘信息。', 'source_ids': []},
+     'job_description': '【固定演示资料】使用 Python 开发 Agent 应用，了解工具调用与 RAG。',
+     'job_requirement': 'Python 开发经验（固定示例）', 'experience_years': 3, 'education': '本科', 'evidence': []},
     {'company': '云岚软件（虚构）', 'title': 'Python AI 应用工程师', 'city': '杭州',
      'address': '示例地址，待核实', 'salary_min': 18000, 'salary_max': 26000,
-     'jd_text': '【固定演示资料】开发知识库问答应用，编写自动化评测。',
-     'notes': '模拟资料，不代表真实招聘信息。', 'source_ids': []},
+     'job_description': '【固定演示资料】开发知识库问答应用，编写自动化评测。',
+     'job_requirement': 'Python 开发经验（固定示例）', 'experience_years': 3, 'education': '本科', 'evidence': []},
 ]
 QUESTIONS = [
     '工具调用与直接让模型回答有什么区别？', '如何判断检索结果是否足以支持回答？',
@@ -58,26 +58,19 @@ async def handle(command, services, emit):
         return AgentResponse(status='needs_input', kind='chat', data={'message': pending['prompt'], 'notice': NOTICE}, pending_input=pending)
     if command.action == 'parse_resume':
         profile = deepcopy(PROFILE)
-        diagnosis = ['固定样例：请核对学历、大学专业、工作经历和求职条件，再统一确认。']
         if scenario == 'partial':
             profile['projects'] = ''
-            diagnosis.append('固定缺项示例：请补充项目经历，个人核心资料不能标为信息盲区。')
         return AgentResponse(
             status='partial' if scenario == 'partial' else 'completed', kind='profile_draft',
-            data={'profile': profile, 'diagnosis': diagnosis, 'notice': NOTICE},
+            data=profile,
         )
     if command.action == 'extract_jobs':
-        jobs = deepcopy(JOBS)
+        job = deepcopy(JOBS[0])
         if command.input.get('document_id'):
-            for job in jobs:
-                job['source_ids'] = [command.input['document_id']]
+            job['evidence'] = [{'document_id': command.input['document_id'], 'locator': '', 'text': ''}]
         if scenario == 'partial':
-            jobs[0]['address'] = ''
-            jobs[0]['blind_spots'] = {'address': '招聘方未披露具体办公地点（模拟盲区）'}
-        return AgentResponse(kind='job_drafts', data={
-            'jobs': jobs, 'diagnosis': ['核对岗位字段；未披露项目请逐项确认信息盲区后入库。'],
-            'notice': NOTICE,
-        })
+            job['address'] = ''
+        return AgentResponse(kind='job_drafts', data=job)
     if command.action == 'index_knowledge':
         return AgentResponse(kind='knowledge_result', data={'questions': [
             {'question': QUESTIONS[0], 'answer': '固定演示答案：工具调用由程序执行并返回观察结果。',
@@ -88,16 +81,15 @@ async def handle(command, services, emit):
         # 只展示独立匹配分和路线样例，不进行真实评分、查询或排名。
         scores = [80, 70]
         for index, job in enumerate(command.snapshot['jobs']):
-            blind_spots = job['data'].get('blind_spots', {})
-            partial = bool(blind_spots.get('address')) or (scenario == 'partial' and index == len(command.snapshot['jobs']) - 1)
+            partial = not job['data']['address'] or (scenario == 'partial' and index == len(command.snapshot['jobs']) - 1)
             items.append({'job_id': job['id'], 'company': job['data']['company'], 'title': job['data']['title'],
-                          'match_score': None if blind_spots.get('jd_text') else scores[index % len(scores)],
+                          'match_score': None if not (job['data']['job_description'] or job['data']['job_requirement']) else scores[index % len(scores)],
                           'matches': [{'requirement': 'Python 开发与工具调用（固定示例）',
                                        'evidence': 'Python 自动化测试经历（固定示例）', 'assessment': 'partial'}],
                           'strengths': ['Python 工程与自动化测试经验（固定示例）'],
                           'gaps': ['需要补充可展示的 Agent 项目经历（固定示例）'],
                           'recommendation': '演示建议：查看技能差距，补充资料后再做真实评估。',
-                          'missing': list(blind_spots.values()) + (['通勤信息待补充'] if partial else []), 'evidence': [],
+                          'missing': (['通勤信息待补充'] if partial else []), 'evidence': [],
                           'commutes': {'public_transit': {
                               'duration_minutes': None if partial else 45, 'distance_km': None if partial else 18,
                               'route_summary': '' if partial else '步行 → 地铁 → 步行（固定路线样例）'},

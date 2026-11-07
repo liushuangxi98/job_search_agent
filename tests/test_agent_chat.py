@@ -20,7 +20,7 @@ def command(text='这个岗位适合我吗？', session='session-a', job='job-a'
         context={'type': 'job', 'id': job, 'session_id': session},
         snapshot={
             'profile': {'revision': 2, 'confirmed': True, 'data': complete_profile(skills=['Python'])},
-            'context_job': {'id': job, 'revision': 3, 'data': complete_job(title='Agent开发', jd_text='要求 RAG')},
+            'context_job': {'id': job, 'revision': 3, 'data': complete_job(title='Agent开发', job_description='要求 RAG')},
         },
         state=state or {}, human_input=human if human is not None else {
             'decision': 'start', 'text': text, 'data': {}, 'input_id': None,

@@ -18,7 +18,7 @@ def jobs(service: JobServiceDep, q: str = '', offset: int = Query(0, ge=0), limi
 @router.post('', status_code=201)
 def create_job(body: JobData, service: JobServiceDep):
     """按 JSON body 保存岗位，精确重复时复用岗位并合并来源，返回 201 和岗位对象。
-    body.source_ids 中的资料必须存在，否则返回 404。
+    body.evidence 引用的截图必须存在，否则返回 404。
     """
     return service.save(body.model_dump())
 

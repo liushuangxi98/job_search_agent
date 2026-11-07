@@ -23,12 +23,12 @@ def test_active_run_can_be_rediscovered_after_page_reload(client):
 
 
 def test_exact_duplicate_job_reuses_record_and_distinct_jd_is_preserved(client):
-    data = complete_job(company='同一公司', title='开发', address='同一地址', jd_text='原始要求')
+    data = complete_job(company='同一公司', title='开发', address='同一地址', job_description='原始要求')
     first = client.post('/api/jobs', json=data).json()
     again = client.post('/api/jobs', json=data).json()
     assert first['id'] == again['id']
     assert client.get('/api/jobs').json()['total'] == 1
-    changed = client.post('/api/jobs', json={**data, 'jd_text': '新的要求'}).json()
+    changed = client.post('/api/jobs', json={**data, 'job_description': '新的要求'}).json()
     assert changed['id'] != first['id']
 
 

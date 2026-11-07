@@ -18,6 +18,8 @@ def main():
         initialize_database(settings, create_database=args.create_database)
     except ValidationError:
         raise SystemExit('旧个人资料不符合当前字段约束，合并已回滚。请检查旧画像和求职条件的数据。')
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
     except SQLAlchemyError:
         raise SystemExit('MySQL 初始化或迁移失败。请检查连接及建表/ALTER 权限；若合并已提交可安全重跑。')
     print(f'数据库 {settings.mysql_database} 已就绪；个人资料统一保存在 profile，历史报告保留。')

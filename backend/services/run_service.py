@@ -16,7 +16,7 @@ from ..contracts import (
 )
 from ..exceptions import AppError
 from ..schemas import JobData, ProfileData
-from .material_validation import candidate_missing, job_missing
+from .material_validation import FOLDED_JOB_MESSAGE, check_dict_missing
 
 
 @dataclass
@@ -65,7 +65,7 @@ class RunService:
         self.settings = settings
         self.repository = repository
         self.handler = handler
-        self.services = ApplicationServices(repository, files)
+        self.services = ApplicationServices(repository, files, clear_history=self.clear_history)
         self.runs = {}
         self.chat_sessions: dict[tuple[str, str], ChatSession] = {}
         self.lock = asyncio.Lock()
@@ -142,10 +142,14 @@ class RunService:
         包含画像、条件及动作需要的岗位或资料；前提不满足时抛 AppError。
         读取的是发起时资料，后续人工修改不会替换这份快照。
         """
-        if body.action == 'extract_jobs' and 'text' in body.input:
-            value = body.input['text']
-            if not isinstance(value, str) or not value.strip() or len(value) > 50000:
-                raise AppError(422, 'JD_TEXT', '招聘原文须为不超过 50000 字的非空文本')
+        if body.action == 'extract_jobs':
+            document_id = body.input.get('document_id')
+            if 'document_ids' in body.input or (document_id is not None and not isinstance(document_id, str)):
+                raise AppError(422, 'SINGLE_IMAGE_REQUIRED', '每次运行只接受一个截图 ID，请逐张导入。')
+            if 'text' in body.input:
+                value = body.input['text']
+                if not isinstance(value, str) or not value.strip() or len(value) > 50000:
+                    raise AppError(422, 'JD_TEXT', '招聘原文须为不超过 50000 字的非空文本')
         snapshot = {
             'profile': self.repository.candidate(),
             'jobs': [],
@@ -153,15 +157,13 @@ class RunService:
         if body.action in {'evaluate', 'interview'}:
             if not snapshot['profile']['confirmed']:
                 raise AppError(409, 'PROFILE_UNCONFIRMED', '请先确认简历画像')
-            missing = candidate_missing(snapshot['profile']['data'])
+            missing = check_dict_missing(snapshot['profile']['data'], ProfileData)
             if missing:
                 raise AppError(409, 'CANDIDATE_INCOMPLETE', '请先完善个人资料：' + '、'.join(item['label'] for item in missing))
             ids = body.input.get('job_ids', []) if body.action == 'evaluate' else [body.input.get('job_id')]
             if not isinstance(ids, list) or not 1 <= len(ids) <= 10 or any(not isinstance(x, str) for x in ids):
                 raise AppError(422, 'JOB_SELECTION', '请选中 1—10 个岗位')
             snapshot['jobs'] = [self.repository.job(key) for key in dict.fromkeys(ids)]
-            if any(job_missing(job['data']) for job in snapshot['jobs']):
-                raise AppError(409, 'JOB_INCOMPLETE', '请先完善岗位资料，或明确确认招聘信息盲区')
         if body.action in {'parse_resume', 'extract_jobs', 'index_knowledge'}:
             key = body.input.get('document_id')
             if key:
@@ -228,7 +230,7 @@ class RunService:
         if target == 'job':
             key = proposal.get('target_id')
             current = self.repository.job(key)
-            if set(changes) - (set(JobData.model_fields) - {'source_ids'}):
+            if set(changes) - (set(JobData.model_fields) - {'evidence'}):
                 raise AppError(422, 'INVALID_PROPOSAL', '提案包含不可修改字段')
             return self.repository.save_job({**current['data'], **changes}, key, revision)
         raise AppError(422, 'INVALID_PROPOSAL', '不支持此修改目标')
@@ -275,15 +277,24 @@ class RunService:
             run.task = asyncio.create_task(self.execute(run, body.model_dump()))
             return self.get(key)
 
-    def chat_session(self, run):
+    def chat_session(self, run: Run | AgentCommand):
         """会话内按 action 分组；同一动作新建运行时沿用历史，不自动清空。
 
         缺少 session_id 时仍以 run_id 隔离调用，避免无会话标识的请求混用。
         """
-        key = (str(run.context.get('session_id') or run.id), run.action)
+        run_id = run.run_id if isinstance(run, AgentCommand) else run.id
+        key = (str(run.context.get('session_id') or run_id), run.action)
         if key not in self.chat_sessions:
             self.chat_sessions[key] = ChatSession()
         return self.chat_sessions[key]
+
+    def clear_history(self, command: AgentCommand) -> None:
+        """清空当前分组的对话和摘要，同时清空已交给 Agent 的副本。"""
+        session = self.chat_session(command)
+        session.messages.clear()
+        session.summary = None
+        command.history.clear()
+        command.summary = None
 
     async def execute(self, run, human=None):
         """调用异步入口并更新 run，成功无返回值；human 是本轮人工输入，首次为 None。
@@ -328,6 +339,11 @@ class RunService:
                 run.usage = deepcopy(response.usage)
                 session.last_usage = run.usage
             response.data = validate_result(response.kind, response.data)
+            if run.action == 'extract_jobs' and run.input.get('document_id'):
+                # 提取器可能交回草稿，也可能正准备追问。折叠标记在两种情况下都终止本图。
+                draft = response.data if response.kind == 'job_drafts' else response.state
+                if draft.get('complete', '完整') is None:
+                    raise AppError(422, 'JOB_TEXT_FOLDED', FOLDED_JOB_MESSAGE)
             # 在契约边界校验可序列化性，错误结果不能进入报告表。
             json.dumps(response.model_dump(), ensure_ascii=False, allow_nan=False)
             if response.summary and response.summary.covered_messages > len(session.messages):

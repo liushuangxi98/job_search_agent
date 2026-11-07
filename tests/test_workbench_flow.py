@@ -13,7 +13,7 @@ from backend.app import create_app
 from backend.contracts import AgentResponse, validate_result
 from backend.models import Candidate, Job, Report
 from test_runs_api import ready_profile, start, wait_run
-from workbench_fixtures import candidate_payload, complete_job, complete_profile
+from workbench_fixtures import candidate_payload, complete_job, complete_profile, upload_image
 
 
 CANDIDATE_MISSING = [
@@ -33,8 +33,8 @@ CANDIDATE_MISSING = [
     ('profile', 'salary_max', None),
 ]
 JOB_MISSING = [
-    ('company', ''), ('title', ''), ('city', ''), ('address', ''), ('jd_text', ''),
-    ('salary_min', None), ('salary_max', None),
+    ('company', ''), ('title', ''), ('city', ''), ('address', ''), ('job_description', ''),
+    ('salary_min', None), ('salary_max', None), ('job_requirement', ''), ('experience_years', None), ('education', ''),
 ]
 OLD_SCORES = {'salary_score', 'commute_score', 'total_score'}
 
@@ -121,24 +121,19 @@ def test_candidate_omitted_direction_is_not_silently_confirmed(client):
     assert client.get('/api/candidate').json() == before
 
 
-def test_legacy_job_reimport_reuses_id_and_merges_sources(client):
-    from test_review_regressions import upload_md
-
-    first_source = upload_md(client, '旧岗位来源.md')
-    second_source = upload_md(client, '新岗位来源.md')
-    response = client.post('/api/jobs', json=complete_job(source_ids=[first_source]))
-    assert response.status_code == 201
-    original = response.json()
+def test_legacy_job_reimport_reuses_id_and_adds_evidence(client):
+    source = upload_image(client)
+    original = client.post('/api/jobs', json=complete_job(evidence=[{'document_id': source}])).json()
     with client.app.state.database.session_factory.begin() as session:
         row = session.get(Job, original['id'])
         legacy = dict(row.data)
-        legacy.pop('blind_spots')
+        legacy.pop('evidence')
         row.data = legacy
-    result = client.post('/api/jobs', json=complete_job(source_ids=[second_source]))
+    result = client.post('/api/jobs', json=complete_job(evidence=[{'document_id': source, 'text': '新提取原文'}]))
     assert result.status_code == 201
     merged = result.json()
     assert merged['id'] == original['id']
-    assert set(merged['data']['source_ids']) == {first_source, second_source}
+    assert {item['document_id'] for item in merged['data']['evidence']} == {source}
     assert merged['revision'] == original['revision'] + 1
     assert client.get('/api/jobs').json()['total'] == 1
 
@@ -237,163 +232,100 @@ def test_personal_missing_fields_cannot_be_waived_with_blind_spots(client, secti
 
 
 @pytest.mark.parametrize('field,value', JOB_MISSING)
-def test_job_missing_field_rejects_create_and_preserves_existing_update(client, field, value):
-    response = client.post('/api/jobs', json=complete_job())
-    assert response.status_code == 201
-    saved = response.json()
-    before = client.get('/api/jobs').json()
-    incomplete = complete_job(**{field: value})
-    assert client.post('/api/jobs', json=incomplete).status_code == 422
+def test_missing_job_fields_block_create_and_edit(client, field, value):
+    payload = complete_job(**{field: value})
+    rejected = client.post('/api/jobs', json=payload)
+    assert rejected.status_code == 422
+    assert rejected.json()['error']['code'] == 'JOB_INCOMPLETE'
+    assert client.get('/api/jobs').json()['total'] == 0
+    saved = client.post('/api/jobs', json=complete_job()).json()
     assert client.put('/api/jobs/' + saved['id'], json={
-        'revision': saved['revision'], 'data': incomplete,
+        'revision': saved['revision'], 'data': payload,
     }).status_code == 422
-    assert client.get('/api/jobs').json() == before
     assert client.get('/api/jobs/' + saved['id']).json() == saved
 
 
-@pytest.mark.parametrize('field,value', JOB_MISSING)
-def test_explicit_job_blind_spot_saves_known_values_without_guessing(client, field, value):
-    blind_key = 'salary' if field.startswith('salary_') else field
-    payload = complete_job(**{field: value}, blind_spots={blind_key: '已核对原文，招聘方未披露'})
-    response = client.post('/api/jobs', json=payload)
-    assert response.status_code == 201, response.text
-    saved = response.json()
-    assert saved['ready'] is True
-    assert saved['missing'] == []
-    assert saved['data'][field] == value
-    assert saved['data']['blind_spots'] == payload['blind_spots']
-    for key in ('salary_min', 'salary_max'):
-        assert saved['data'][key] == payload[key]
-    assert client.get('/api/jobs/' + saved['id']).json() == saved
-    assert client.get('/api/jobs').json()['items'] == [saved]
-    updated = client.put('/api/jobs/' + saved['id'], json={
-        'revision': saved['revision'], 'data': {**payload, 'notes': '后续向招聘方核实'},
-    })
-    assert updated.status_code == 200
-    assert updated.json()['ready'] is True
-    assert updated.json()['missing'] == []
-    assert updated.json()['data'][field] == value
-
-
-@pytest.mark.parametrize('blind_spots', [
-    {}, {'address': ''}, {'address': '   '}, {'notes': '未披露地址'},
-    {'salary': '未披露薪资'},
-])
-def test_blind_spot_requires_allowed_key_and_nonempty_matching_reason(client, blind_spots):
-    payload = complete_job(address='', blind_spots=blind_spots)
-    assert client.post('/api/jobs', json=payload).status_code == 422
+@pytest.mark.parametrize('field', ['jd_text', 'notes', 'blind_spots', 'salary_note'])
+def test_retired_job_fields_are_rejected_in_new_requests(client, field):
+    assert client.post('/api/jobs', json={**complete_job(), field: {}}).status_code == 422
     assert client.get('/api/jobs').json()['total'] == 0
 
 
-@pytest.mark.parametrize('key', ['notes', 'salary_min'])
-def test_complete_job_still_rejects_unsupported_blind_spot_keys(client, key):
-    response = client.post('/api/jobs', json=complete_job(blind_spots={key: '招聘方未披露'}))
-    assert response.status_code == 422
-    assert client.get('/api/jobs').json()['total'] == 0
-
-
-@pytest.mark.parametrize('salary', [
-    {'salary_min': 0, 'salary_max': None},
-    {'salary_min': -1, 'salary_max': None},
-    {'salary_min': None, 'salary_max': 10000001},
+@pytest.mark.parametrize('values', [
+    {'salary_min': 0}, {'salary_min': -1}, {'salary_max': 10000001},
     {'salary_min': 30000, 'salary_max': 20000},
+    {'experience_years': -1}, {'experience_years': 81},
+    {'experience_years': 'NaN'}, {'experience_years': 'Infinity'},
 ])
-def test_salary_blind_spot_does_not_waive_numeric_constraints(client, salary):
-    response = client.post('/api/jobs', json=complete_job(
-        **salary, blind_spots={'salary': '招聘方未披露完整范围'},
-    ))
-    assert response.status_code == 422
+def test_known_job_numbers_still_require_valid_values(client, values):
+    assert client.post('/api/jobs', json=complete_job(**values)).status_code == 422
     assert client.get('/api/jobs').json()['total'] == 0
 
 
 @pytest.mark.parametrize('unknown_fields', [('company',), ('title',), ('company', 'title')])
-def test_unknown_company_or_title_never_merges_distinct_imports(client, unknown_fields):
-    payload = complete_job(**dict.fromkeys(unknown_fields, ''),
-                           blind_spots=dict.fromkeys(unknown_fields, '招聘方未披露'))
-    first = client.post('/api/jobs', json=payload)
-    second = client.post('/api/jobs', json=payload)
-    assert first.status_code == second.status_code == 201
-    assert first.json()['id'] != second.json()['id']
-    assert first.json()['ready'] is second.json()['ready'] is True
-    assert client.get('/api/jobs').json()['total'] == 2
+def test_unknown_company_or_title_cannot_be_imported(client, unknown_fields):
+    payload = complete_job(**dict.fromkeys(unknown_fields, ''))
+    assert client.post('/api/jobs', json=payload).status_code == 422
+    assert client.get('/api/jobs').json()['total'] == 0
 
 
 def test_invalid_job_source_never_partially_creates_merges_or_updates(client):
-    sources = []
-    for name in ('A.md', 'B.md'):
-        upload = client.post('/api/documents', data={'kind': 'knowledge'},
-                             files={'file': (name, b'# source', 'text/markdown')})
-        assert upload.status_code == 201
-        sources.append(upload.json()['id'])
-    response = client.post('/api/jobs', json=complete_job(source_ids=[sources[0]]))
+    source = upload_image(client)
+    response = client.post('/api/jobs', json=complete_job(evidence=[{'document_id': source}]))
     assert response.status_code == 201
     saved = response.json()
     before = client.get('/api/jobs').json()
-    bad_sources = [sources[1], 'missing-source']
-    for payload in (complete_job(company='不应新增', source_ids=bad_sources),
-                    complete_job(source_ids=bad_sources)):
+    bad_evidence = [{'document_id': 'missing-source'}]
+    for payload in (complete_job(company='不应新增', evidence=bad_evidence),
+                    complete_job(evidence=bad_evidence)):
         assert client.post('/api/jobs', json=payload).status_code == 404
         assert client.get('/api/jobs').json() == before
     assert client.put('/api/jobs/' + saved['id'], json={
         'revision': saved['revision'],
-        'data': complete_job(title='不应覆盖', source_ids=bad_sources),
+        'data': complete_job(title='不应覆盖', evidence=bad_evidence),
     }).status_code == 404
     assert client.get('/api/jobs/' + saved['id']).json() == saved
-    assert client.get('/api/documents').json()['total'] == 2
+    assert client.get('/api/documents').json()['total'] == 1
 
 
-def test_legacy_job_is_readable_but_cannot_run_until_completed(client):
+def test_legacy_job_is_readable_and_can_be_evaluated_with_unknown_fields(client):
     ready_profile(client)
     old_data = {'company': '旧公司', 'title': '开发', 'jd_text': '原有招聘描述'}
     with client.app.state.database.session_factory.begin() as session:
-        row = Job(data=old_data)
-        session.add(row)
+        record = Job(data=old_data)
+        session.add(record)
         session.flush()
-        key = row.id
-    response = client.get('/api/jobs/' + key)
-    assert response.status_code == 200
-    old = response.json()
-    assert old['ready'] is False
-    assert {item['field'] for item in old['missing']} == {'city', 'address', 'salary'}
-    assert all(item['label'] for item in old['missing'])
-    assert {field: old['data'][field] for field in old_data} == old_data
-    assert client.get('/api/jobs').json()['items'] == [old]
-    for action, values in [('evaluate', {'job_ids': [key]}), ('interview', {'job_id': key})]:
-        assert client.post('/api/runs', json={'action': action, 'input': values}).status_code == 409
-    assert client.app.state.run_service.runs == {}
-    repaired = client.put('/api/jobs/' + key, json={
-        'revision': old['revision'], 'data': complete_job(**old_data),
-    })
-    assert repaired.status_code == 200
-    assert repaired.json()['ready'] is True
-    assert repaired.json()['missing'] == []
-    assert start(client, 'evaluate', job_ids=[key])['status'] == 'completed'
+        key = record.id
+    result = client.get('/api/jobs/' + key).json()
+    assert result['data']['job_description'] == old_data['jd_text']
+    assert result['data']['job_requirement'] == ''
+    assert result['data']['experience_years'] is None
+    assert result['data']['education'] == ''
+    assert start(client, 'evaluate', job_ids=[key])['status'] == 'partial'
 
 
-def test_explicit_job_blind_spots_allow_evaluation_and_interview(client):
+def test_legacy_undisclosed_job_data_allows_evaluation_and_interview(client):
     ready_profile(client)
-    blind_spots = {'address': '招聘方未披露办公地址', 'salary': '招聘方未披露薪资'}
-    response = client.post('/api/jobs', json=complete_job(
-        address='', salary_min=None, salary_max=None, blind_spots=blind_spots,
-    ))
-    assert response.status_code == 201
-    job = response.json()
+    with client.app.state.database.session_factory.begin() as session:
+        record = Job(data=complete_job(address='', salary_min=None, salary_max=None))
+        session.add(record)
+        session.flush()
+        job = {'id': record.id}
     run = start(client, 'evaluate', job_ids=[job['id']])
     assert run['status'] == 'partial'
     result = run['result']['data']['jobs'][0]
     assert result['match_score'] is not None
-    assert set(blind_spots.values()) <= set(result['missing'])
     assert result['commutes']['public_transit']['duration_minutes'] is None
     assert result['commutes']['driving']['duration_minutes'] is None
     report = client.get('/api/reports/' + run['report_id']).json()
-    assert report['snapshot']['jobs'][0]['data']['blind_spots'] == blind_spots
+    assert report['snapshot']['jobs'][0]['data']['salary_min'] is None
     interview = start(client, 'interview', job_id=job['id'])
     assert interview['status'] == 'needs_input'
-    assert interview['pending_input']['kind'] == 'question'
     assert client.post(f"/api/runs/{interview['id']}/input", json={
         'input_id': interview['pending_input']['id'], 'decision': 'finish',
     }).status_code == 202
     assert wait_run(client, interview['id'])['report_id']
+
 
 
 @pytest.mark.parametrize('match_score', [82, None])
@@ -492,7 +424,7 @@ def test_old_report_scores_and_snapshot_survive_edits_deletion_and_restart(clien
         candidate['revision'], profile=complete_profile(name='新姓名', city='上海'),
     )).status_code == 200
     assert client.put('/api/jobs/' + job['id'], json={
-        'revision': job['revision'], 'data': complete_job(jd_text='新的招聘要求'),
+        'revision': job['revision'], 'data': complete_job(job_description='新的招聘要求'),
     }).status_code == 200
     assert start(client, 'evaluate', job_ids=[job['id']])['report_id'] != key
     assert client.delete('/api/jobs/' + job['id']).status_code == 204
@@ -509,28 +441,38 @@ def test_demo_drafts_require_explicit_confirmation_and_partial_profile_cannot_sa
     assert normal['status'] == 'completed'
     assert normal['result']['kind'] == 'profile_draft'
     data = normal['result']['data']
-    assert isinstance(data['diagnosis'], list)
-    assert data['notice']
+    assert 'profile' not in data and 'diagnosis' not in data
     assert client.get('/api/candidate').json() == before
     saved = client.put('/api/candidate', json={
-        'revision': before['revision'], 'profile': data['profile'],
+        'revision': before['revision'], 'profile': data,
     })
     assert saved.status_code == 200
     partial = start(client, 'parse_resume', demo_scenario='partial')
     data = partial['result']['data']
     assert partial['result']['kind'] == 'profile_draft'
     assert client.put('/api/candidate', json={
-        'revision': saved.json()['revision'], 'profile': data['profile'],
+        'revision': saved.json()['revision'], 'profile': data,
     }).status_code == 422
     assert client.get('/api/candidate').json() == saved.json()
 
 
-def test_profile_draft_requires_complete_profile_and_diagnosis_defaults_to_empty():
-    data = {'profile': complete_profile()}
-    assert validate_result('profile_draft', data)['diagnosis'] == []
-    with pytest.raises(ValidationError):
-        validate_result('profile_draft', {})
-    assert validate_result('job_drafts', {'jobs': [complete_job()]})['diagnosis'] == []
+def test_drafts_use_business_schemas_directly():
+    assert validate_result('profile_draft', complete_profile())['name'] == complete_profile()['name']
+    assert validate_result('job_drafts', complete_job())['title'] == complete_job()['title']
+    for job_list in ([], [complete_job()], [complete_job(), complete_job()]):
+        with pytest.raises(ValidationError):
+            AgentResponse(kind='job_drafts', data=job_list)
+    for kind, wrapped in [('profile_draft', {'profile': complete_profile()}), ('job_drafts', {'jobs': []})]:
+        with pytest.raises(ValidationError):
+            validate_result(kind, wrapped)
+
+
+@pytest.mark.parametrize('key', ['document_id', 'document_ids'])
+def test_extract_jobs_rejects_image_list_before_start(client, key):
+    response = client.post('/api/runs', json={'action': 'extract_jobs', 'input': {key: ['A', 'B']}})
+    assert response.status_code == 422
+    assert response.json()['error']['code'] == 'SINGLE_IMAGE_REQUIRED'
+    assert not client.app.state.run_service.runs
 
 
 @pytest.mark.parametrize('scenario', ['success', 'partial'])
@@ -538,15 +480,15 @@ def test_demo_job_drafts_do_not_save_before_review(client, scenario):
     run = start(client, 'extract_jobs', text='固定测试原文', demo_scenario=scenario)
     assert run['result']['kind'] == 'job_drafts'
     data = run['result']['data']
-    assert isinstance(data['diagnosis'], list)
-    assert data['jobs'] and data['notice']
+    assert isinstance(data, dict) and data['title']
     assert client.get('/api/jobs').json()['total'] == 0
     if scenario == 'partial':
-        assert any(job.get('blind_spots', {}).get('address') for job in data['jobs'])
-    for draft in data['jobs']:
-        saved = client.post('/api/jobs', json=draft)
-        assert saved.status_code == 201, saved.text
-        assert saved.json()['ready'] is True
+        assert not data['address']
+        assert client.post('/api/jobs', json=data).status_code == 422
+        data['address'] = '用户核实的办公地址'
+    saved = client.post('/api/jobs', json=data)
+    assert saved.status_code == 201, saved.text
+    assert client.get('/api/jobs').json()['total'] == 1
 
 
 @pytest.mark.parametrize('action', ['parse_resume', 'extract_jobs'])

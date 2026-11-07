@@ -45,7 +45,7 @@ class Document(Record, Base):
 
 
 class Job(Record, Base):
-    # JSON 保存岗位字段；来源 ID 由 JobSource 维护，读取时才合并到返回数据。
+    # JSON 保存岗位及 evidence；JobSource 为其中的单张截图维护存在性关联。
     __tablename__ = 'jobs'
     revision: Mapped[int] = mapped_column(default=1)
     data: Mapped[dict] = mapped_column(JSON)

@@ -84,7 +84,7 @@ def test_resume_answer_gets_history_and_state_without_repeating_initial_input(tm
             )
         assert command.state == {'profile': draft}
         assert command.human_input['text'] == '两万到三万'
-        return AgentResponse(kind='profile_draft', data={'profile': complete_profile()})
+        return AgentResponse(kind='profile_draft', data=complete_profile())
 
     service = RunService(Settings(_env_file=None, data_dir=tmp_path), None, None, handler)
     async def scenario():
@@ -101,7 +101,7 @@ def test_resume_answer_gets_history_and_state_without_repeating_initial_input(tm
         assert captured[-1].human_input['decision'] == 'answer'
         messages = service.chat_session(task).messages
         assert messages[-2] == {'role': 'user', 'content': '两万到三万'}
-        assert json.loads(messages[-1]['content'])['profile']['salary_min'] == 20000
+        assert json.loads(messages[-1]['content'])['salary_min'] == 20000
     asyncio.run(scenario())
 
 
@@ -180,7 +180,7 @@ def test_resume_merges_saved_profile_and_validates_result(tmp_path, monkeypatch,
     asyncio.run(service.execute(task, human))
     assert task.status == status
     if start:
-        assert task.result['data']['profile']['experience'] == complete_profile()['experience']
+        assert task.result['data']['experience'] == complete_profile()['experience']
     else:
         assert '字段约束冲突' in task.result['data']['message']
 

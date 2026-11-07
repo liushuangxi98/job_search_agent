@@ -8,7 +8,7 @@ from backend.app import create_app
 from backend.contracts import AgentResponse
 from backend.services.run_service import Run, RunService
 from test_runs_api import ready_profile, start
-from workbench_fixtures import complete_job
+from workbench_fixtures import complete_job, upload_image
 
 
 def upload_md(client, name):
@@ -18,16 +18,16 @@ def upload_md(client, name):
     return result.json()['id']
 
 
-def test_new_source_merge_invalidates_old_job_edit(client):
-    a, b = upload_md(client, 'A.md'), upload_md(client, 'B.md')
-    data = complete_job(company='来源合并公司', title='开发', jd_text='同一份描述', source_ids=[a])
+def test_new_evidence_on_same_image_invalidates_old_job_edit(client):
+    source = upload_image(client)
+    data = complete_job(evidence=[{'document_id': source, 'text': '第一段'}])
     original = client.post('/api/jobs', json=data).json()
-    merged = client.post('/api/jobs', json={**data, 'source_ids': [b]}).json()
+    merged = client.post('/api/jobs', json={**data, 'evidence': [{'document_id': source, 'text': '第二段'}]}).json()
     assert merged['id'] == original['id']
-    assert set(merged['data']['source_ids']) == {a, b}
+    assert [item['text'] for item in merged['data']['evidence']] == ['第一段', '第二段']
     stale = client.put('/api/jobs/' + original['id'], json={'revision': original['revision'], 'data': data})
     assert stale.status_code == 409
-    assert set(client.get('/api/jobs/' + original['id']).json()['data']['source_ids']) == {a, b}
+    assert client.get('/api/jobs/' + original['id']).json() == merged
 
 
 def test_redaction_preserves_ids_and_business_snapshot(settings):

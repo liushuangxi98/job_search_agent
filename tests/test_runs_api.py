@@ -33,7 +33,7 @@ def start(client, action, **values):
 
 def test_completed_report_survives_restart_without_runtime(client, settings):
     ready_profile(client)
-    job = client.post('/api/jobs', json=complete_job(company='示例公司', title='Agent 开发', jd_text='原始 JD')).json()
+    job = client.post('/api/jobs', json=complete_job(company='示例公司', title='Agent 开发', job_description='原始 JD')).json()
     run = start(client, 'evaluate', job_ids=[job['id']])
     assert run['status'] == 'completed'
     assert run['is_demo'] is True
@@ -45,7 +45,7 @@ def test_completed_report_survives_restart_without_runtime(client, settings):
         report = restarted.get('/api/reports/' + report_id).json()
         assert 'preferences' not in report['snapshot']
         assert report['snapshot']['profile']['data']['city'] == '杭州'
-        assert report['snapshot']['jobs'][0]['data']['jd_text'] == '原始 JD'
+        assert report['snapshot']['jobs'][0]['data']['job_description'] == '原始 JD'
         assert report['is_demo'] is True
         assert restarted.get(f'/api/reports/{report_id}/export?format=json').status_code == 200
         markdown = restarted.get(f'/api/reports/{report_id}/export?format=md')
