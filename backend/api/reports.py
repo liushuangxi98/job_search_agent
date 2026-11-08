@@ -1,7 +1,7 @@
 """报告读取和下载接口。"""
 from fastapi import APIRouter, Query, Response
 
-from .dependencies import ReportServiceDep
+from .dependencies import ReportServiceDep, RunServiceDep
 
 router = APIRouter(prefix='/reports', tags=['报告'])
 
@@ -16,6 +16,18 @@ def reports(service: ReportServiceDep):
 def report(key: str, service: ReportServiceDep):
     """按路径中的报告 ID 返回结果和输入快照等完整记录；报告不存在时返回 404。"""
     return service.get(key)
+
+
+@router.delete('/{key}', status_code=204)
+def delete_evaluation(key: str, service: ReportServiceDep):
+    service.delete_evaluation(key)
+    return Response(status_code=204)
+
+
+@router.get('/{key}/events')
+def report_events(key: str, service: ReportServiceDep, runs: RunServiceDep):
+    """返回这份历史报告所属运行的执行记录。"""
+    return runs.report_events(service.get(key)['run_id'])
 
 
 @router.get('/{key}/export')

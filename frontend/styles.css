@@ -101,7 +101,7 @@ nav a:hover { background: #f0f5f1; text-decoration: none; }
 .job-score { color: #306747; font-size: 18px; font-weight: 650; }
 .job-score small { font-weight: 400; font-size: 11px; }
 .job-details { border-top: 1px solid #e7eee8; background: #fbfcfa; padding: 24px; }
-.job-details > summary { font-size: 12px; }
+.job-details > summary { font-size: 14px; font-weight: 600; }
 .job-details:not([open]) { padding: 10px 24px; }
 .job-details[open] > summary { margin-bottom: 22px; }
 .job-meta { display: grid; grid-template-columns: 85px 1fr; gap: 8px 20px; margin: 0 0 20px; font-size: 12px; }
@@ -121,7 +121,6 @@ pre.prose { background: #f2f5f1; border-radius: 7px; padding: 12px; }
 .trace-item { padding: 8px 0; display: flex; gap: 15px; border-bottom: 1px solid #edf1ec; }
 .trace-item small { min-width: 72px; }
 .trace-item pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-.history { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 16px; }
 .history-controls { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
 .history-controls select { max-width: 520px; }
 .report { border: 1px solid var(--line); padding: 22px; border-radius: 9px; background: #fff; }

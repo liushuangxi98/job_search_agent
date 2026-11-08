@@ -122,12 +122,22 @@ class RunService:
         return deepcopy({
             'id': run.id, 'action': run.action, 'status': run.status, 'is_demo': run.is_demo,
             'context': run.context,
-            'subject_job_id': jobs[0]['id'] if run.action == 'interview' and jobs else None,
+            'subject_job_id': jobs[0]['id'] if run.action in {'evaluate', 'interview'} and jobs else None,
             'events': [event for event in events if event['seq'] > after],
             'next_seq': events[-1]['seq'] if events else 0,
             'result': run.result, 'pending_input': run.pending_input, 'report_id': run.report_id,
             'usage': run.usage, 'previous_usage': run.previous_usage,
         })
+
+    def report_events(self, run_id: str):
+        """按已保存报告的运行 ID 读取脱敏事件，旧日志缺失时返回空列表。"""
+        if run_id in self.runs:
+            return deepcopy(self.runs[run_id].events)
+        path = (self.log_dir / (run_id + '.jsonl')).resolve()
+        if path.parent != self.log_dir.resolve() or not path.is_file():
+            return []
+        with path.open(encoding='utf-8') as log:
+            return [json.loads(line) for line in log if line.strip()]
 
     def current(self):
         """返回 running 或 needs_input 状态的活动；没有活动时返回 {'active': None}。"""
@@ -161,9 +171,9 @@ class RunService:
             if missing:
                 raise AppError(409, 'CANDIDATE_INCOMPLETE', '请先完善个人资料：' + '、'.join(item['label'] for item in missing))
             ids = body.input.get('job_ids', []) if body.action == 'evaluate' else [body.input.get('job_id')]
-            if not isinstance(ids, list) or not 1 <= len(ids) <= 10 or any(not isinstance(x, str) for x in ids):
-                raise AppError(422, 'JOB_SELECTION', '请选中 1—10 个岗位')
-            snapshot['jobs'] = [self.repository.job(key) for key in dict.fromkeys(ids)]
+            if not isinstance(ids, list) or len(ids) != 1 or not isinstance(ids[0], str):
+                raise AppError(422, 'JOB_SELECTION', '一次只能选择一个岗位')
+            snapshot['jobs'] = [self.repository.job(ids[0])]
         if body.action in {'parse_resume', 'extract_jobs', 'index_knowledge'}:
             key = body.input.get('document_id')
             if key:
@@ -255,6 +265,11 @@ class RunService:
                     self.apply_proposal(pending['proposal'])
             elif body.decision not in {'answer', 'finish'} or (body.decision == 'answer' and not (body.text or body.data)):
                 raise AppError(422, 'ANSWER_REQUIRED', '请输入回答，或选择结束')
+            elif body.decision == 'answer' and run.action == 'evaluate':
+                # 表单用从 1 开始的编号。核对后再消费 input_id，以免无效编号选中错误的坐标。
+                for side, choices in run.result['data'].get('place_choices', {}).items():
+                    if body.data.get(side) not in map(str, range(1, len(choices) + 1)):
+                        raise AppError(422, 'PLACE_SELECTION', '请从候选列表中选择通勤起点和办公地点')
             run.pending_input = None
             if run.action == 'chat' and body.decision in {'confirm', 'reject', 'finish'}:
                 user, message = {

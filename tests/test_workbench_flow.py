@@ -331,9 +331,9 @@ def test_legacy_undisclosed_job_data_allows_evaluation_and_interview(client):
 @pytest.mark.parametrize('match_score', [82, None])
 def test_new_evaluation_preserves_match_evidence_and_routes_without_old_scores(settings, match_score):
     matches = [
-        {'requirement': 'Python', 'evidence': '维护接口平台', 'assessment': 'matched'},
-        {'requirement': 'RAG', 'evidence': '题库检索项目', 'assessment': 'partial'},
-        {'requirement': '生产部署', 'evidence': '尚无相关经历', 'assessment': 'gap'},
+        {'requirement': 'Python', 'evidence': '维护接口平台', 'assessment': '符合'},
+        {'requirement': 'RAG', 'evidence': '题库检索项目', 'assessment': '部分符合'},
+        {'requirement': '生产部署', 'evidence': '尚无相关经历', 'assessment': '不符合'},
         {'requirement': '团队规模', 'evidence': ''},
     ]
     commutes = {
@@ -350,7 +350,7 @@ def test_new_evaluation_preserves_match_evidence_and_routes_without_old_scores(s
             'title': '匹配报告', 'summary': '固定测试结果', 'jobs': [{
                 'job_id': job['id'], 'company': job['data']['company'], 'title': job['data']['title'],
                 'match_score': match_score, 'matches': deepcopy(matches),
-                'supporting_experiences': ['Python 自动化经验'], 'key_requirement': '缺少生产部署经历',
+                'supporting_experiences': '1. Python 自动化经验符合开发要求。', 'key_requirement': '缺少生产部署经历',
                 'recommendation': '补充部署案例', 'evidence': [{'source': '简历', 'text': '维护接口平台'}],
                 'commutes': deepcopy(commutes),
                 'salary_score': 100, 'commute_score': 90, 'total_score': 88,
@@ -366,8 +366,8 @@ def test_new_evaluation_preserves_match_evidence_and_routes_without_old_scores(s
         result = run['result']['data']['jobs'][0]
         assert result['match_score'] == match_score
         assert not OLD_SCORES.intersection(result)
-        assert result['matches'] == [dict(item, assessment=item.get('assessment', 'unknown')) for item in matches]
-        assert result['supporting_experiences'] == ['Python 自动化经验']
+        assert result['matches'] == [dict(item, assessment=item.get('assessment', '资料不足')) for item in matches]
+        assert result['supporting_experiences'] == '1. Python 自动化经验符合开发要求。'
         assert result['key_requirement'] == '缺少生产部署经历'
         assert result['commutes'] == commutes
         assert result['recommendation'] == '补充部署案例'
@@ -387,7 +387,7 @@ def test_new_evaluation_preserves_match_evidence_and_routes_without_old_scores(s
 @pytest.mark.parametrize('changes', [
     {'match_score': -1}, {'match_score': 101}, {'match_score': float('inf')},
     {'matches': [{'requirement': 'Python', 'evidence': '简历', 'assessment': 'invented'}]},
-    {'supporting_experiences': 'not-a-list'},
+    {'supporting_experiences': ['不是字符串']},
     {'commutes': {'driving': {'duration_minutes': -1}}},
     {'commutes': {'driving': {'distance_km': float('nan')}}},
 ])

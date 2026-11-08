@@ -25,7 +25,7 @@ const state = {
   page: 'jobs', params: new URLSearchParams(), health: null, generation: 0,
   candidate: null, profileDraft: null, drafts: {},
   jobs: [], reports: [], documents: [], query: '', offset: 0, expanded: new Set(),
-  selectedReports: {}, openHistory: new Set(), run: null, runs: new Map(), timer: null,
+  selectedReports: {}, routeHash: null, run: null, runs: new Map(), timer: null,
   starting: false, responding: new Set(), processed: new Set(), pollError: false,
   batch: null, runBatches: new Map(), uploadKind: null, modal: null,
   chatOpen: false, messages: [], chatDraft: '',
@@ -121,7 +121,7 @@ function profileEvidence(items) {
     const source = [item.document_id, item.locator].filter(Boolean).join(' · ');
     return `<li class="prose">${esc(item.text ?? (source ? '' : JSON.stringify(item)))} ${esc(source)}</li>`;
   });
-  return `<h3 class="form-section">提取依据</h3>${entries.length ? `<ul>${entries.join('')}</ul>` : '<p class="caption">暂无提取依据。</p>'}`;
+  return `<details class="detail-section"><summary>提取依据</summary>${entries.length ? `<ul>${entries.join('')}</ul>` : '<p class="caption">暂无提取依据。</p>'}</details>`;
 }
 function candidateFields(profile) {
   const required = {required: true};
@@ -160,51 +160,66 @@ async function resumePage() {
       ${(profile.evidence || []).length ? `<details class="detail-section"><summary>原始提取依据</summary><pre class="prose">${esc(JSON.stringify(profile.evidence, null, 2))}</pre></details>` : ''}
     </div></article></div>`;
 }
-function commuteHTML(commutes = {}) {
-  return `<div class="commutes">${[['public_transit', '公交'], ['driving', '驾车']].map(([key, label]) => {
+function commuteHTML(commutes = {}, origin, destination) {
+  // 已保存的真实报告在两种方式的首行都记录了用户最终确认的起终点。
+  const transit = commutes.public_transit?.route_summary || '';
+  const driving = commutes.driving?.route_summary || '';
+  const firstLine = transit.split('\n', 1)[0];
+  const shared = firstLine.includes(' → ') && firstLine === driving.split('\n', 1)[0];
+  const endpoints = shared ? firstLine : [origin || '起点未知', destination || '终点未知'].join(' → ');
+  return `<h3>单程通勤</h3><p class="prose">${esc(endpoints)}</p><div class="commutes">${[['public_transit', '公交'], ['driving', '驾车']].map(([key, label]) => {
     const route = commutes[key] || {};
     const duration = route.duration_minutes == null ? '时间未知' : `${esc(route.duration_minutes)} 分钟`;
     const distance = route.distance_km == null ? '距离未知' : `${esc(route.distance_km)} 公里`;
-    return `<div class="commute"><span class="caption">${label} · 单程</span><strong>${duration} / ${distance}</strong><p>${esc(route.route_summary || '路线未知')}</p></div>`;
+    const summary = shared ? route.route_summary.slice(firstLine.length).trimStart() : route.route_summary;
+    return `<div class="commute"><span class="caption">${label} · 单程</span><strong>${duration} / ${distance}</strong><p>${esc(summary || '路线未知')}</p></div>`;
   }).join('')}</div>`;
 }
-function textList(title, values) {
-  return values?.length ? `<h3>${esc(title)}</h3><ul>${values.map(x => `<li class="prose">${esc(x)}</li>`).join('')}</ul>` : '';
+function reportSection(title, value) {
+  if (!value?.length) return '';
+  const body = Array.isArray(value)
+    ? `<ul>${value.map(x => `<li class="prose">${esc(x)}</li>`).join('')}</ul>`
+    : `<p class="prose">${esc(value)}</p>`;
+  return `<h3>${esc(title)}</h3>${body}`;
 }
 function reportContent(report, jobId) {
   const data = report.data;
-  const header = `<div class="report-head"><div><h2>${esc(data.title || '报告')}</h2><small>${when(report.created_at)} · ${report.is_demo ? '固定模拟样例' : '已保存快照'}</small></div><div class="actions"><a href="/api/reports/${encodeURIComponent(report.id)}/export?format=md">导出 MD ↗</a><a href="/api/reports/${encodeURIComponent(report.id)}/export?format=json">JSON ↗</a></div></div><p class="prose">${esc(data.summary || '')}</p>`;
+  const header = `<div class="report-head"><div><h2>${esc(data.title || '报告')}</h2><small>${when(report.created_at)} · ${report.is_demo ? '固定模拟样例' : '已保存快照'}</small></div><div class="actions"><a href="/api/reports/${encodeURIComponent(report.id)}/export?format=md">导出 MD ↗</a><a href="/api/reports/${encodeURIComponent(report.id)}/export?format=json">JSON ↗</a>${report.kind === 'evaluation' ? button('删除本次评估', 'delete-evaluation', `${idAttr(report.id)} data-job="${esc(jobId)}"`, 'ghost small') : ''}</div></div>`;
   if (report.kind === 'evaluation') {
     const row = (data.jobs || []).find(x => x.job_id === jobId);
     if (!row) return header + '<p class="caption">该历史报告没有对应岗位的匹配结果。</p>';
     const job = report.snapshot?.jobs?.find(item => item.id === jobId)?.data || row;
-    const assessment = {matched: '符合', partial: '部分符合', gap: '差距', unknown: '未知'};
+    const legacyAssessment = {matched: '符合', partial: '部分符合', gap: '不符合', unknown: '资料不足'};
     return header + `<h3>${esc(job.company || '未披露公司')} · ${esc(job.title || '未披露职位')}</h3><div class="report-score">${score(row.match_score)}<small>匹配分 / 100</small></div>
-      ${commuteHTML(row.commutes)}<p class="prose">${esc(row.recommendation || '暂无建议')}</p>
-      ${(row.matches || []).length ? `<h3>逐项匹配依据</h3><div class="table-scroll"><table><thead><tr><th>岗位要求</th><th>个人证据</th><th>判断</th></tr></thead><tbody>${row.matches.map(x => `<tr><td>${esc(x.requirement)}</td><td>${esc(x.evidence || '未知')}</td><td>${esc(assessment[x.assessment] || '未知')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="caption detail-section">本次报告未提供逐项匹配依据。</p>'}
-      ${textList('最有利的经历', row.supporting_experiences)}${row.key_requirement ? `<h3>最不利的关键要求</h3><p class="prose">${esc(row.key_requirement)}</p>` : ''}
-      ${textList('优势', row.strengths)}${textList('差距', row.gaps)}${textList('信息缺口', row.missing)}
+      ${reportSection('求职建议', row.recommendation || '暂无建议。')}
+      ${reportSection('最有利的经历', row.supporting_experiences || row.strengths || '本次未列出。')}
+      ${reportSection('最不利的关键要求', row.key_requirement || row.gaps || '本次未列出。')}
+      <h3>逐项匹配证据</h3>${(row.matches || []).length ? `<div class="table-scroll"><table><thead><tr><th>岗位要求</th><th>个人证据</th><th>判断</th></tr></thead><tbody>${row.matches.map(x => `<tr><td>${esc(x.requirement)}</td><td>${esc(x.evidence || '未知')}</td><td>${esc(legacyAssessment[x.assessment] || x.assessment || '资料不足')}</td></tr>`).join('')}</tbody></table></div>` : '<p class="caption">本次报告未提供逐项匹配依据。</p>'}
+      ${commuteHTML(row.commutes, report.snapshot?.profile?.data?.commute_origin, job.address)}
+      ${reportSection('评估说明', data.summary)}${reportSection('信息缺口', row.missing)}
       ${(row.evidence || []).length ? `<details class="detail-section"><summary>原文证据与引用</summary><pre class="prose">${esc(JSON.stringify(row.evidence, null, 2))}</pre></details>` : ''}
       <details class="detail-section"><summary>本次使用的资料快照</summary><pre class="prose">${esc(JSON.stringify(report.snapshot || {}, null, 2))}</pre></details>`;
   }
   const dimensions = (data.dimensions || []).length
     ? `<h3>面试维度反馈</h3><dl class="job-meta interview-dimensions">${data.dimensions.map(x => `<dt>${esc(x.name)}</dt><dd>${x.score == null ? '未考察' : score(x.score)}</dd>`).join('')}</dl>` : '';
-  return header + dimensions + textList('练习重点', data.weaknesses) + textList('推荐练习', data.practice) +
+  return header + reportSection('面试概述', data.summary) + dimensions + reportSection('练习重点', data.weaknesses) + reportSection('推荐练习', data.practice) +
     `<details class="detail-section" open><summary>回看本次问答（${(data.answers || []).length} 轮）</summary><ol class="answers">${(data.answers || []).map(x => `<li><strong>${esc(x.question)}</strong><p>${esc(x.answer)}</p><small>${esc(x.source || '来源未知')}</small></li>`).join('')}</ol></details>`;
 }
-function historyHTML(jobId) {
-  const reports = jobReports(jobId);
-  if (!reports.length) return '<p class="caption detail-section">暂无评估或面试记录。</p>';
-  const current = reports.find(x => x.id === state.selectedReports[jobId]) || reports[0];
-  return `<details class="history" data-history="${esc(jobId)}" ${state.openHistory.has(jobId) ? 'open' : ''}><summary>评估与面试历史 · ${reports.length} 次</summary>
-    <label class="history-controls"><span class="caption">查看记录</span><select data-report-select="${esc(jobId)}" aria-label="选择报告">${reports.map(x => `<option value="${esc(x.id)}" ${x.id === current.id ? 'selected' : ''}>${when(x.created_at)} · ${x.kind === 'evaluation' ? '评估' : '面试'} · ${esc(x.data.title || '报告')}${x.is_demo ? '（模拟）' : ''}</option>`).join('')}</select></label><article class="report" data-report-body="${esc(jobId)}">${reportContent(current, jobId)}</article></details>`;
+function jobActivity(jobId, action, reports) {
+  const key = jobId + '/' + action;
+  const current = reports.find(x => x.id === state.selectedReports[key]) || reports[0];
+  const title = actionNames[action];
+  return `<details class="job-details" data-job-action="${action}" data-section-key="${esc(key)}" ${state.expanded.has(key) ? 'open' : ''}><summary>${title}${reports.length ? ' · ' + reports.length + ' 次' : ''}</summary>
+    <div data-job-run="${esc(jobId)}" data-action-type="${action}"></div>
+    ${current ? `<label class="history-controls"><span class="caption">查看记录</span><select data-report-select="${esc(jobId)}" aria-label="选择${title}报告">${reports.map(x => `<option value="${esc(x.id)}" ${x.id === current.id ? 'selected' : ''}>${when(x.created_at)} · ${esc(x.data.title || '报告')}</option>`).join('')}</select></label>
+      <article class="report">${reportContent(current, jobId)}${reportTrace(current)}</article>` : `<p class="caption">暂无已保存的${title}报告。</p>`}</details>`;
 }
 function jobEvidence(items) {
   const documentId = items.find(item => item.document_id)?.document_id;
   const document = state.documents.find(item => item.id === documentId);
   const link = document ? `<p><a href="/api/documents/${encodeURIComponent(document.id)}/content" target="_blank" rel="noopener">${esc(document.filename)} ↗</a></p>` : '';
   const quotes = items.map(item => `<li><small>${esc(item.locator)}</small><p class="prose">${esc(item.text || '未记录原文片段')}</p></li>`).join('');
-  return `<section class="detail-section"><h3>提取依据</h3>${link}${quotes ? `<ul>${quotes}</ul>` : '<p class="caption">暂无提取依据。</p>'}</section>`;
+  return `<details class="detail-section"><summary>提取依据</summary>${link}${quotes ? `<ul>${quotes}</ul>` : '<p class="caption">暂无提取依据。</p>'}</details>`;
 }
 function jobRow(item) {
   const data = item.data;
@@ -216,15 +231,15 @@ function jobRow(item) {
     <div><h3>${button(esc(data.title || '未披露职位'), 'open-job', idAttr(item.id), 'job-title')}</h3><small>${esc(data.company || '未披露公司')} · ${esc(data.city || '未披露')}</small></div>
     <div>${data.salary_min == null ? '未披露' : money(data.salary_min)} — ${data.salary_max == null ? '未披露' : money(data.salary_max)}<small>月薪</small></div>
     <div>${result ? `<span class="job-score">${score(result.match_score)}<small>最近匹配分${latest.is_demo ? ' · 模拟' : ''}</small></span>` : `<span class="badge">待评估</span><small>尚无匹配结果</small>`}</div>
-    <div class="actions">${button('评估', 'evaluate-job', `${idAttr(item.id)} data-start data-blocked="${blocked}"`, 'secondary small')}${button('模拟面试', 'interview-job', `${idAttr(item.id)} data-start data-blocked="${blocked}"`, 'small')}</div>
-    </div><details class="job-details" data-job-details="${esc(item.id)}" ${state.expanded.has(item.id) ? 'open' : ''}><summary>岗位详情、评估与面试记录${reports.length ? `（${reports.length}）` : ''}</summary>
-      <div data-job-run="${esc(item.id)}"></div>
-      <dl class="job-meta"><dt>办公地址</dt><dd>${esc(data.address || '未披露')}</dd><dt>最低工作年限</dt><dd>${data.experience_years == null ? '未披露' : esc(data.experience_years) + ' 年'}</dd><dt>学历要求</dt><dd>${esc(data.education || '未披露')}</dd></dl>
+    <div class="actions">${button('评估', 'evaluate-job', `${idAttr(item.id)} data-start data-blocked="${blocked}"`, 'secondary small')}${button('模拟面试', 'interview-job', `${idAttr(item.id)} data-start data-blocked="${blocked}"`, 'small')}${button('删除岗位', 'delete-job', idAttr(item.id), 'ghost small')}</div>
+    </div><details class="job-details" data-job-details="${esc(item.id)}" data-section-key="${esc(item.id)}" ${state.expanded.has(item.id) ? 'open' : ''}><summary>岗位详情</summary>
+      <dl class="job-meta"><dt>公司名称</dt><dd>${esc(data.company || '未披露')}</dd><dt>岗位名称</dt><dd>${esc(data.title || '未披露')}</dd><dt>办公地址</dt><dd>${esc(data.address || '未披露')}</dd><dt>最低工作年限</dt><dd>${data.experience_years == null ? '未披露' : esc(data.experience_years) + ' 年'}</dd><dt>学历要求</dt><dd>${esc(data.education || '未披露')}</dd></dl>
       <h3>岗位描述和职责</h3><p class="prose">${esc(data.job_description || '未披露')}</p>
       <h3>任职要求</h3><p class="prose">${esc(data.job_requirement || '未披露')}</p>
       ${jobEvidence(data.evidence || [])}
-      <div class="actions detail-section">${button('编辑岗位', 'edit-job', idAttr(item.id), 'secondary small')}${button('移除岗位', 'delete-job', idAttr(item.id), 'ghost small')}</div>
-      ${historyHTML(item.id)}</details></article>`;
+      <div class="actions detail-section">${button('编辑岗位', 'edit-job', idAttr(item.id), 'secondary small')}</div>
+    </details>${jobActivity(item.id, 'evaluate', reports.filter(x => x.kind === 'evaluation'))}
+    ${jobActivity(item.id, 'interview', reports.filter(x => x.kind === 'interview'))}</article>`;
 }
 async function jobsPage() {
   const [jobs, candidate, reports, docs] = await Promise.all([
@@ -245,10 +260,9 @@ async function jobsPage() {
   return `<div class="page-intro"><div><h2>值得了解的下一站</h2><p>每个岗位独立查看匹配依据、通勤路线与面试记录。</p></div></div>
     ${!candidate.confirmed ? '<div class="tip">请先完善并确认个人资料，才能评估或面试。<a href="#/resume">前往简历画像 →</a></div>' : ''}
     <div class="toolbar"><form id="job-search" class="search"><input name="q" aria-label="搜索岗位" placeholder="搜索公司、职位或城市" value="${esc(state.query)}"><button class="secondary">搜索</button></form><div class="actions">${button('导入截图', 'upload', 'data-kind="image" data-start', 'secondary')}${button('粘贴招聘原文', 'paste-jd', 'data-start', 'secondary')}</div></div>
-    ${missingJob ? `<div class="tip">关联岗位已移除或不存在。${linkedReport ? '下方保留当时的报告与资料快照。' : '请从岗位池重新选择。'}</div>${linkedReport ? `<article class="report">${reportContent(linkedReport, selected)}</article>` : ''}` : ''}
+    ${missingJob ? `<div class="tip">关联岗位已移除或不存在。${linkedReport ? '下方保留当时的报告与资料快照。' : '请从岗位池重新选择。'}</div>${linkedReport ? `<article class="report">${reportContent(linkedReport, selected)}${reportTrace(linkedReport)}</article>` : ''}` : ''}
     <div data-page-run="jobs"></div><div class="job-list">${state.jobs.length ? state.jobs.map(jobRow).join('') : card('岗位池', '从一个感兴趣的岗位开始', empty('还没有导入岗位', '通过上方的“导入截图”或“粘贴招聘原文”开始。'))}</div>
-    <div class="table-footer"><span>共 ${jobs.total} 个岗位</span><div class="actions">${button('上一页', 'jobs-prev', state.offset === 0 ? 'disabled' : '', 'ghost small')}<span>${Math.floor(state.offset / 20) + 1}</span>${button('下一页', 'jobs-next', state.offset + 20 >= jobs.total ? 'disabled' : '', 'ghost small')}</div></div>
-    ${docs.items.length ? `<details class="detail-section"><summary>已上传的招聘截图 · ${docs.items.length} 份</summary>${fileRows(docs.items, 'extract-image')}</details>` : ''}`;
+    <div class="table-footer"><span>共 ${jobs.total} 个岗位</span><div class="actions">${button('上一页', 'jobs-prev', state.offset === 0 ? 'disabled' : '', 'ghost small')}<span>${Math.floor(state.offset / 20) + 1}</span>${button('下一页', 'jobs-next', state.offset + 20 >= jobs.total ? 'disabled' : '', 'ghost small')}</div></div>`;
 }
 async function knowledgePage() {
   const [docs, questions] = await Promise.all([api('/documents?kind=knowledge'), api('/knowledge/questions?limit=100')]);
@@ -257,6 +271,11 @@ async function knowledgePage() {
     <article class="card"><header class="card-head"><div><h2>我的题目</h2><p>共 ${questions.total} 道 · 展示最近 100 条</p></div></header>${questions.items.length ? questions.items.map(x => `<section class="question-item"><header><h3>${esc(x.data.question)}</h3><div class="actions">${button('编辑', 'edit-question', idAttr(x.id), 'ghost small')}${button('移除', 'delete-question', idAttr(x.id), 'ghost small')}</div></header><div class="chip-list">${(x.data.tags || []).map(tag => `<span class="chip">${esc(tag)}</span>`).join('')}</div><details><summary>参考答案与来源</summary><p>${esc(x.data.answer || '未提供参考答案')}</p><small>${esc(x.data.locator || '人工录入')}</small>${x.data.document_id ? `<a href="/api/documents/${encodeURIComponent(x.data.document_id)}/content" target="_blank" rel="noopener"> 原文 ↗</a>` : ''}</details></section>`).join('') : empty('题库还是空的', '从一道题开始，留下答案与来源。')}</article></div>`;
 }
 
+function placeField(side, label, names) {
+  const options = names.map((name, i) => `<option value="${i + 1}">${esc(name)}</option>`).join('');
+  return `<label class="field"><span>${label}</span><select name="${side}" required>
+    <option value="">请选择地点</option>${options}</select></label>`;
+}
 function pendingHTML(run) {
   const pending = run.pending_input;
   if (!pending) return '';
@@ -265,6 +284,13 @@ function pendingHTML(run) {
   }
   const interview = run.action === 'interview';
   const data = run.result?.data || {};
+  if (run.action === 'evaluate' && data.place_choices) {
+    return `<section class="pending"><h3>确认通勤地点</h3><p>${esc(pending.prompt)}</p>
+      <form data-run-answer="${esc(run.id)}" data-input-id="${esc(pending.id)}" data-places>
+        <div class="form-grid">${placeField('start', '通勤起点', data.place_choices.start)}
+        ${placeField('end', '办公地点', data.place_choices.end)}</div>
+        <div class="actions">${button('结束本次', 'run-decision', `${idAttr(run.id)} data-decision="finish"`, 'secondary')}<button>确认并继续</button></div></form></section>`;
+  }
   return `<section class="pending">${interview ? `<span class="badge green">第 ${esc(data.round || 1)} / 最多 8 轮</span><h3 class="interview-question">${esc(data.question || pending.prompt)}</h3><p class="caption">来源：${esc(data.source || '未知')}</p>` : `<h3>需要你补充一点信息</h3><p>${esc(pending.prompt)}</p>`}
     <form data-run-answer="${esc(run.id)}" data-input-id="${esc(pending.id)}"><textarea name="text" required maxlength="20000" rows="4" aria-label="${interview ? '面试回答' : '补充信息'}" placeholder="${interview ? '写下你的思路，可以结合经历说明。' : '填写补充内容'}"></textarea><div class="actions">${button(interview ? '提前结束并生成报告' : '结束本次', 'run-decision', `${idAttr(run.id)} data-decision="finish"`, 'secondary')}<button>${interview ? '提交回答' : '提交并继续'}</button></div></form></section>`;
 }
@@ -276,7 +302,18 @@ function runHTML(run) {
     ${run.status === 'running' ? '<p class="caption">正在处理，请稍候。当前活动结束前不能开始另一项活动。</p>' : ''}
     ${run.status === 'failed' ? `<div class="error-banner">${esc(run.result?.data?.message || '处理失败，请人工整理资料。')}</div>` : pendingHTML(run)}
     ${reviewable && !['running', 'needs_input', 'failed'].includes(run.status) ? button('核对处理结果', 'review-result', idAttr(run.id), 'secondary small') : ''}
-    <details class="trace"><summary>执行记录（${(run.events || []).length}）</summary>${(run.events || []).map(x => `<div class="trace-item"><small>${when(x.at)}</small><div>${esc(x.message)}${Object.keys(x.data || {}).length ? `<pre>${esc(JSON.stringify(x.data, null, 2))}</pre>` : ''}</div></div>`).join('')}</details></section>`;
+    ${traceHTML(run.events || [])}</section>`;
+}
+function traceHTML(events) {
+  return `<details class="trace"><summary>执行记录（${events.length}）</summary>${traceEntries(events)}</details>`;
+}
+function traceEntries(events) {
+  return events.map(x => `<div class="trace-item"><small>${when(x.at)}</small><div>${esc(x.message)}${Object.keys(x.data || {}).length ? `<pre>${esc(JSON.stringify(x.data, null, 2))}</pre>` : ''}</div></div>`).join('') || '<p class="caption">暂无执行记录。</p>';
+}
+function reportTrace(report) {
+  const run = state.runs.get(report.run_id);
+  if (run?.report_id === report.id) return traceHTML(run.events);
+  return `<details class="trace" data-report-trace="${esc(report.id)}"><summary>执行记录</summary><div></div></details>`;
 }
 function runPage(run) {
   return {parse_resume: 'resume', extract_jobs: 'jobs', index_knowledge: 'knowledge', evaluate: 'jobs', interview: 'jobs'}[run.action];
@@ -287,19 +324,24 @@ function updateRunPanels() {
   for (const host of hosts) {
     const id = host.dataset.jobRun;
     const candidates = [...state.runs.values()].filter(run => id
-      ? runJob(run) === id && ['evaluate', 'interview'].includes(run.action)
+      ? runJob(run) === id && run.action === host.dataset.actionType
       : !runJob(run) && runPage(run) === host.dataset.pageRun);
-    const run = candidates.find(x => x.id === state.run?.id && active()) || candidates.at(-1);
+    const latest = candidates.find(x => x.id === state.run?.id && active()) || candidates.at(-1);
+    const run = id && latest?.report_id ? null : latest;
     const signature = run ? JSON.stringify([run.id, run.status, run.next_seq, run.pending_input, run.result]) : '';
     if (host.dataset.signature === signature) continue;
     host.querySelectorAll('form').forEach(form => rememberDraft(form));
+    const traceOpen = host.dataset.runId === run?.id && host.querySelector('.trace')?.open;
     host.innerHTML = run ? runHTML(run) : '';
+    host.dataset.runId = run?.id || '';
+    if (traceOpen && run) host.querySelector('.trace').open = true;
     host.dataset.signature = signature;
     restoreDrafts(host);
   }
   updateControls();
 }
 async function resolveRoute() {
+  const entering = location.hash !== state.routeHash;
   const [path, query = ''] = (location.hash.slice(1) || '/jobs').split('?');
   const original = path.replace(/^\//, '');
   state.page = ({preferences: 'resume', evaluate: 'jobs', reports: 'jobs', interview: 'jobs'})[original] || original;
@@ -316,7 +358,10 @@ async function resolveRoute() {
       try { run = setRun(await api('/runs/' + encodeURIComponent(runId)), false); }
       catch (error) { if (error.status !== 404) throw error; toast(error.message, true); state.params.delete('run'); }
     }
-    if (runJob(run)) state.params.set('job', runJob(run));
+    if (runJob(run)) {
+      state.params.set('job', runJob(run));
+      if (entering) state.expanded.add(runJob(run) + '/' + run.action);
+    }
     if (run?.report_id && !state.params.get('report')) state.params.set('report', run.report_id);
   }
   const reportId = state.params.get('report');
@@ -326,15 +371,17 @@ async function resolveRoute() {
       const jobId = state.params.get('job') || reportJobs(report)[0];
       if (jobId) {
         state.params.set('job', jobId);
-        state.selectedReports[jobId] = reportId;
-        state.openHistory.add(jobId);
+        const key = jobId + '/' + (report.kind === 'evaluation' ? 'evaluate' : 'interview');
+        state.selectedReports[key] = reportId;
+        if (entering) state.expanded.add(key);
       }
     } catch (error) { if (error.status !== 404) throw error; toast(error.message, true); state.params.delete('report'); }
   }
-  if (state.params.get('job')) state.expanded.add(state.params.get('job'));
+  if (entering && state.params.get('job') && !runId && !reportId) state.expanded.add(state.params.get('job'));
   const suffix = state.params.toString();
   const hash = `#/${state.page}${suffix ? '?' + suffix : ''}`;
   if (location.hash !== hash) history.replaceState(null, '', hash);
+  state.routeHash = hash;
 }
 async function render() {
   const generation = ++state.generation;
@@ -372,7 +419,7 @@ async function begin(action, input = {}, batch = null, jobId = null) {
     setRun(run);
     if (batch) state.runBatches.set(run.id, batch);
     if (jobId) {
-      state.expanded.add(jobId);
+      state.expanded.add(jobId + '/' + action);
       await go('jobs', {job: jobId, run: run.id});
     }
     updateRunPanels();
@@ -436,16 +483,14 @@ async function settled(run) {
     state.reports = (await api('/reports')).items;
     const jobId = runJob(run) || reportJobs(state.reports.find(x => x.id === run.report_id) || {})[0];
     if (jobId) {
-      state.selectedReports[jobId] = run.report_id;
-      state.openHistory.add(jobId);
-      state.expanded.add(jobId);
+      state.selectedReports[jobId + '/' + run.action] = run.report_id;
     }
     if (state.page === 'jobs') await render();
     toast('本次结果已保存，可在岗位行内回看。');
   }
   updateControls();
 }
-async function respond(runId, decision, text = '') {
+async function respond(runId, decision, text = '', data = {}) {
   const run = state.runs.get(runId);
   const pending = run?.pending_input;
   if (!pending) throw new Error('该输入已处理，请查看当前状态。');
@@ -454,7 +499,7 @@ async function respond(runId, decision, text = '') {
   document.querySelectorAll(`[data-run-answer="${CSS.escape(runId)}"] button`).forEach(x => { x.disabled = true; });
   if (decision === 'finish') cancelBatch(state.runBatches.get(runId));
   try {
-    const response = await api(`/runs/${encodeURIComponent(runId)}/input`, {method: 'POST', body: {input_id: pending.id, decision, text}});
+    const response = await api(`/runs/${encodeURIComponent(runId)}/input`, {method: 'POST', body: {input_id: pending.id, decision, text, data}});
     delete state.drafts['input:' + pending.id];
     setRun(response);
     updateRunPanels();
@@ -728,6 +773,7 @@ async function resumeActivity() {
     return;
   }
   const jobId = runJob(state.run);
+  if (jobId) state.expanded.add(jobId + '/' + state.run.action);
   await go(runPage(state.run) || 'jobs', {run: state.run.id, ...(jobId ? {job: jobId} : {})});
 }
 const actions = {
@@ -750,15 +796,35 @@ const actions = {
   },
   'upload': element => chooseFiles(element.dataset.kind),
   'edit-job': element => editJob(element.dataset.id),
-  'open-job': element => go('jobs', {job: element.dataset.id}),
+  'open-job': element => {
+    state.expanded.add(element.dataset.id);
+    return go('jobs', {job: element.dataset.id});
+  },
   'jobs-prev': () => { state.offset = Math.max(0, state.offset - 20); return render(); },
   'jobs-next': () => { state.offset += 20; return render(); },
   'delete-job': async element => {
     if (active() && runJob(state.run) === element.dataset.id) throw new Error('请先结束这个岗位的当前活动。');
-    if (!confirm('移除这个岗位？已保存的历史报告仍会保留。')) return;
+    if (!confirm('删除这个岗位？已保存的评估和面试报告仍会保留。')) return;
     await api('/jobs/' + encodeURIComponent(element.dataset.id), {method: 'DELETE'});
+    if (state.jobs.length === 1 && state.offset > 0) state.offset -= 20;
     if (state.params.get('job') === element.dataset.id) await go('jobs');
     else await render();
+  },
+  'delete-evaluation': async element => {
+    const {id, job} = element.dataset;
+    if (!confirm('删除选中的这份岗位评估？岗位和其他报告仍会保留。')) return;
+    await api('/reports/' + encodeURIComponent(id), {method: 'DELETE'});
+    const next = jobReports(job).find(report => report.kind === 'evaluation' && report.id !== id);
+    const key = job + '/evaluate';
+    if (next) state.selectedReports[key] = next.id;
+    else delete state.selectedReports[key];
+    // 当前地址可能通过报告或运行 ID 指向刚删除的记录。
+    if (state.params.get('report') === id || state.runs.get(state.params.get('run'))?.report_id === id) {
+      await go('jobs', next ? {job, report: next.id} : {});
+    } else {
+      await render();
+    }
+    toast('已删除本次评估。');
   },
   'delete-document': async element => {
     if (!confirm('移除这份资料和关联题目元数据？历史报告仍会保留。')) return;
@@ -766,7 +832,6 @@ const actions = {
     await render();
   },
   'parse-resume': element => begin('parse_resume', {document_id: element.dataset.id}),
-  'extract-image': element => begin('extract_jobs', {document_id: element.dataset.id}),
   'index-knowledge': element => begin('index_knowledge', {document_id: element.dataset.id}),
   'sample-profile': () => begin('parse_resume'),
   'use-profile-draft': async () => {
@@ -831,7 +896,9 @@ document.addEventListener('submit', async event => {
   if (submitter) submitter.disabled = true;
   try {
     const data = formData(form);
-    if (form.dataset.runAnswer) {
+    if (form.hasAttribute('data-places')) {
+      await respond(form.dataset.runAnswer, 'answer', '', data);
+    } else if (form.dataset.runAnswer) {
       if (!data.text?.trim()) throw new Error('请先填写回答。');
       await respond(form.dataset.runAnswer, 'answer', data.text);
     } else if (form.id === 'profile-form') {
@@ -904,15 +971,25 @@ document.addEventListener('change', async event => {
   if (node.closest('#editor') && state.modal) state.modal.dirty = true;
   if (node.dataset.reportSelect) {
     const job = node.dataset.reportSelect;
-    state.selectedReports[job] = node.value;
-    state.openHistory.add(job);
     await go('jobs', {job, report: node.value});
   }
 });
-document.addEventListener('toggle', event => {
+document.addEventListener('toggle', async event => {
   const node = event.target;
-  if (node.dataset.jobDetails) node.open ? state.expanded.add(node.dataset.jobDetails) : state.expanded.delete(node.dataset.jobDetails);
-  if (node.dataset.history) node.open ? state.openHistory.add(node.dataset.history) : state.openHistory.delete(node.dataset.history);
+  if (node.dataset.sectionKey) node.open ? state.expanded.add(node.dataset.sectionKey) : state.expanded.delete(node.dataset.sectionKey);
+  if (node.open && node.dataset.reportTrace && !node.dataset.loaded) {
+    node.dataset.loaded = 'true';
+    const body = node.querySelector('div');
+    body.textContent = '正在读取执行记录…';
+    try {
+      const events = await api('/reports/' + encodeURIComponent(node.dataset.reportTrace) + '/events');
+      node.querySelector('summary').textContent = `执行记录（${events.length}）`;
+      body.innerHTML = traceEntries(events);
+    } catch (error) {
+      body.textContent = error.message;
+      delete node.dataset.loaded;
+    }
+  }
 }, true);
 document.addEventListener('invalid', event => {
   if (event.target.form?.id !== 'profile-form') return;
@@ -941,7 +1018,7 @@ async function bootstrap() {
     if (current.active) {
       setRun(current.active);
       const jobId = runJob(current.active);
-      if (jobId) state.expanded.add(jobId);
+      if (jobId) state.expanded.add(jobId + '/' + current.active.action);
     }
     await render();
     if (state.run?.status === 'running') await poll();

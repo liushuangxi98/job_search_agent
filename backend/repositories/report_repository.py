@@ -1,4 +1,4 @@
-"""只追加和读取报告，不随当前资料变更改写报告。"""
+"""存取报告快照，用户可单独删除评估记录。"""
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,9 @@ class ReportRepository:
     def list(self):
         """按创建时间从新到旧返回全部报告记录列表；没有报告时返回空列表。"""
         return self.session.scalars(select(Report).order_by(Report.created_at.desc())).all()
+
+    def delete(self, row: Report):
+        self.session.delete(row)
 
     def add(self, **values):
         """用 values 中的结果 data、输入快照 snapshot、运行标识 run_id 和演示标记 is_demo 新增报告。

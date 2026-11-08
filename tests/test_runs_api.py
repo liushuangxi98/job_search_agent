@@ -39,9 +39,12 @@ def test_completed_report_survives_restart_without_runtime(client, settings):
     assert run['is_demo'] is True
     assert run['events'] and run['report_id']
     report_id = run['report_id']
+    trace_url = f'/api/reports/{report_id}/events'
+    assert client.get(trace_url).json() == run['events']
     client.delete('/api/jobs/' + job['id'])
     with TestClient(create_app(settings)) as restarted:
         assert restarted.get('/api/runs/' + run['id']).status_code == 404
+        assert restarted.get(trace_url).json() == run['events']
         report = restarted.get('/api/reports/' + report_id).json()
         assert 'preferences' not in report['snapshot']
         assert report['snapshot']['profile']['data']['city'] == '杭州'
@@ -51,6 +54,21 @@ def test_completed_report_survives_restart_without_runtime(client, settings):
         markdown = restarted.get(f'/api/reports/{report_id}/export?format=md')
         assert markdown.status_code == 200
         assert '模拟' in markdown.text
+
+
+def test_delete_one_evaluation_keeps_job_and_other_reports(client):
+    ready_profile(client)
+    job = client.post('/api/jobs', json=complete_job()).json()
+    first = start(client, 'evaluate', job_ids=[job['id']])['report_id']
+    second = start(client, 'evaluate', job_ids=[job['id']])['report_id']
+    interview = client.app.state.report_service.save('interview', {}, {'jobs': [job]}, 'practice', False)
+    assert client.delete(f'/api/reports/{first}').status_code == 204
+    for suffix in ('', '/export', '/events'):
+        assert client.get(f'/api/reports/{first}{suffix}').status_code == 404
+    assert client.delete(f'/api/reports/{first}').status_code == 404
+    assert client.delete('/api/reports/' + interview['id']).status_code == 409
+    assert {item['id'] for item in client.get('/api/reports').json()['items']} == {second, interview['id']}
+    assert client.get('/api/jobs/' + job['id']).json() == job
 
 
 def test_confirmation_applies_once_and_locks_other_runs(client):

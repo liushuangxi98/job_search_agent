@@ -40,6 +40,8 @@ def browser_env(settings):
     async def handler(command, services, emit):
         calls.append((command.action, dict(command.input)))
         contexts.append(dict(command.context))
+        if command.action in {'evaluate', 'interview'}:
+            await emit('status', f'{command.action} {command.run_id}')
         images = [x for x in calls if x[0] == 'extract_jobs' and x[1].get('document_id')]
         if len(images) > 1:
             second_image.set()
@@ -112,6 +114,13 @@ def seed_jobs(env):
 
 def row(page, item):
     return page.locator(f'[data-job-row="{item["id"]}"]')
+
+
+def open_job_details(job_row):
+    details = job_row.locator('[data-job-details]')
+    if not details.evaluate('node => node.open'):
+        details.locator(':scope > summary').click()
+    return details
 
 
 def seed_legacy_job(env, **fields):
@@ -245,7 +254,10 @@ def test_profile_fields_survive_confirmation_refresh_and_draft_adoption(browser_
     for label, value in [('大学专业', PROFILE['major']), ('个人简介', PROFILE['summary']),
                          ('出行偏好', '公共交通')]:
         expect(preview.locator('dt', has_text=label).locator('+ dd')).to_have_text(value)
-    expect(preview).to_contain_text('参与自动化项目 resume_dom · 第 2 页')
+    details = preview.locator('details').filter(has=page.locator('summary', has_text='提取依据')).first
+    expect(details).not_to_have_attribute('open', '')
+    details.locator(':scope > summary').click()
+    expect(details).to_contain_text('参与自动化项目 resume_dom · 第 2 页')
     preview.get_by_role('button', name='填入画像表单').click()
     expect(major).to_have_value(PROFILE['major'])
     expect(summary).to_have_value(PROFILE['summary'])
@@ -339,12 +351,56 @@ def test_missing_profile_field_blocks_jobs_until_confirmed(browser_env, field_na
     assert not env['calls']
 
 
+def test_commute_selects_both_places_before_query(browser_env):
+    env, page = browser_env, browser_env['page']
+    answers = []
+
+    async def handle(command, services, emit):
+        if command.human_input['decision'] == 'answer':
+            answers.append(command.human_input['data'])
+            return await demo_handle(command, services, emit)
+        prompt = '请选择通勤的出发点和目的地。'
+        return AgentResponse(
+            status='needs_input', kind='chat', pending_input={'kind': 'question', 'prompt': prompt},
+            data={'message': prompt, 'place_choices': {
+                'start': ['杭州东门'], 'end': ['杭州西门', '杭州南门'],
+            }},
+        )
+
+    env['app'].state.run_service.handler = handle
+    job, _ = seed_jobs(env)
+    visit(env)
+    job_row = row(page, job)
+    job_row.get_by_role('button', name='评估', exact=True).click()
+    form = job_row.locator('[data-run-answer]')
+    start = form.locator('select[name=start]')
+    end = form.locator('select[name=end]')
+    expect(start).to_be_visible()
+    expect(end).to_be_visible()
+    expect(start).to_contain_text('杭州东门')
+    expect(end).to_contain_text('杭州南门')
+    expect(form.locator('option[value=new], input[type=text], input:not([type]), textarea')).to_have_count(0)
+    expect(start).to_have_value('')
+    expect(end).to_have_value('')
+    submit = form.locator('button:not([type=button])')
+    submit.click()
+    assert answers == []
+    start.select_option('1')
+    end.select_option('2')
+    submit.click()
+    expect(job_row.locator('.report')).to_be_visible()
+    assert answers == [{'start': '1', 'end': '2'}]
+    assert sum(method == 'POST' and path.endswith('/input') for method, path in env['requests']) == 1
+
+
 def test_old_run_view_does_not_replace_active_run(browser_env):
     env, page = browser_env, browser_env['page']
     a, _ = seed_jobs(env)
     visit(env)
     row(page, a).get_by_role('button', name='评估', exact=True).click()
-    expect(row(page, a).locator('.history')).to_be_visible()
+    evaluation = row(page, a).locator('[data-job-action=evaluate]')
+    expect(evaluation.locator('.report')).to_be_visible()
+    earlier = env['repo'].reports()['items'][0]
     old_url = page.url
     page.locator('#scenario').select_option('needs_input')
     row(page, a).get_by_role('button', name='评估', exact=True).click()
@@ -354,14 +410,13 @@ def test_old_run_view_does_not_replace_active_run(browser_env):
     expect(page.locator('#chat-drawer')).not_to_be_visible()
     row(page, a).locator('[data-run-answer] textarea').fill('杭州软件园')
     row(page, a).get_by_role('button', name='提交并继续').click()
-    try:
-        expect(row(page, a).locator('.history summary').first).to_contain_text('2 次')
-    except AssertionError:
-        print('Current run:', row(page, a).locator('.run-panel').inner_text())
-        print('Toast:', page.locator('#toast').inner_text())
-        print('Last requests:', env['requests'][-12:])
-        raise
+    expect(evaluation.locator('select option')).to_have_count(2)
     assert env['repo'].reports()['total'] == 2
+    latest = next(report for report in env['repo'].reports()['items'] if report['id'] != earlier['id'])
+    evaluation.locator('select').select_option(earlier['id'])
+    evaluation.locator('.report .trace > summary').click()
+    expect(evaluation.locator('.trace')).to_contain_text('evaluate ' + earlier['run_id'])
+    expect(evaluation.locator('.trace')).not_to_contain_text(latest['run_id'])
 
 
 def test_cancel_import_stops_unsent_jobs(browser_env):
@@ -464,21 +519,35 @@ def test_interview_reload_and_report_stay_with_the_correct_job(browser_env):
     env, page = browser_env, browser_env['page']
     a, b = seed_jobs(env)
     visit(env)
-    row(page, a).get_by_role('button', name='模拟面试', exact=True).click()
-    expect(row(page, a)).to_contain_text('第 1 / 最多 8 轮')
-    row(page, a).get_by_role('textbox', name='面试回答').fill('已经提交的第一轮答案')
-    row(page, a).get_by_role('button', name='提交回答', exact=True).click()
-    expect(row(page, a)).to_contain_text('第 2 / 最多 8 轮')
-    row(page, a).get_by_role('textbox', name='面试回答').fill('刷新时应丢弃的草稿')
+    job = row(page, a)
+    evaluation = job.locator('[data-job-action=evaluate]')
+    interview = job.locator('[data-job-action=interview]')
+    job.get_by_role('button', name='评估', exact=True).click()
+    expect(evaluation.locator('.report')).to_be_visible()
+    job.get_by_role('button', name='模拟面试', exact=True).click()
+    expect(interview).to_contain_text('第 1 / 最多 8 轮')
+    interview.get_by_role('textbox', name='面试回答').fill('已经提交的第一轮答案')
+    interview.get_by_role('button', name='提交回答', exact=True).click()
+    expect(interview).to_contain_text('第 2 / 最多 8 轮')
+    interview.get_by_role('textbox', name='面试回答').fill('刷新时应丢弃的草稿')
     page.once('dialog', lambda dialog: dialog.accept())
     page.reload()
-    expect(row(page, a)).to_contain_text('第 2 / 最多 8 轮')
-    expect(row(page, a).get_by_role('textbox', name='面试回答')).to_have_value('')
-    row(page, a).get_by_role('button', name='提前结束并生成报告').click()
-    expect(row(page, a).locator('.report')).to_contain_text('已经提交的第一轮答案')
-    expect(row(page, a).locator('.interview-dimensions')).to_contain_text('Agent 基础（固定示例）')
-    expect(row(page, a).locator('.interview-dimensions')).to_contain_text('75')
-    expect(row(page, b).locator('.history')).to_have_count(0)
+    expect(interview).to_contain_text('第 2 / 最多 8 轮')
+    expect(interview.get_by_role('textbox', name='面试回答')).to_have_value('')
+    interview.get_by_role('button', name='提前结束并生成报告').click()
+    expect(interview.locator('.report')).to_contain_text('已经提交的第一轮答案')
+    expect(interview.locator('.interview-dimensions')).to_contain_text('Agent 基础（固定示例）')
+    expect(interview.locator('.interview-dimensions')).to_contain_text('75')
+    runs = {r['kind']: r['run_id'] for r in env['repo'].reports()['items']}
+    interview.locator('.report .trace > summary').click()
+    expect(interview.locator('.trace')).to_contain_text('interview ' + runs['interview'])
+    expect(interview.locator('.trace')).not_to_contain_text(runs['evaluation'])
+    if not evaluation.evaluate('node => node.open'):
+        evaluation.locator(':scope > summary').click()
+    evaluation.locator('.report .trace > summary').click()
+    expect(evaluation.locator('.trace')).to_contain_text('evaluate ' + runs['evaluation'])
+    expect(evaluation.locator('.trace')).not_to_contain_text(runs['interview'])
+    expect(row(page, b).locator('.report')).to_have_count(0)
     assert '#/jobs' in page.url
 
 
@@ -535,12 +604,14 @@ def test_images_are_uploaded_one_at_a_time_after_confirmation(browser_env, tmp_p
         page.get_by_label('跳过此条').check()
     page.get_by_role('button', name='确认入库', exact=True).click()
     expect(page.locator('#editor')).to_contain_text('确认待导入岗位')
-    page.wait_for_function('document.querySelectorAll(".file-row").length >= 2')
-    assert len([x for x in env['requests'] if x == ('POST', '/api/documents')]) == 2
     assert env['second_image'].wait(5)
+    assert len([x for x in env['requests'] if x == ('POST', '/api/documents')]) == 2
     ids = [args['document_id'] for action, args in env['calls'] if action == 'extract_jobs']
     assert len(ids) == len(set(ids)) == 2
-    expect(page.locator(f'#editor a[href="/api/documents/{ids[1]}/content"]')).to_be_visible()
+    evidence = page.locator('#editor details', has=page.locator(f'a[href="/api/documents/{ids[1]}/content"]'))
+    evidence.locator('summary').click()
+    expect(evidence.get_by_role('link')).to_be_visible()
+    expect(page.get_by_text('已上传的招聘截图', exact=False)).to_have_count(0)
     page.get_by_role('button', name='确认入库', exact=True).click()
     expect(page.locator('#editor')).not_to_be_visible()
     jobs = env['repo'].jobs()['items']
@@ -576,8 +647,12 @@ def test_folded_image_waits_for_user_before_next_upload(browser_env, tmp_path, c
         expect(dialog).to_contain_text('确认待导入岗位')
         ids = [args['document_id'] for action, args in env['calls'] if action == 'extract_jobs']
         assert len(set(ids)) == len(ids) == 2
-        expect(page.locator(f'.file-row a[href="/api/documents/{ids[1]}/content"]')).to_have_text('b.png')
-        expect(dialog.locator(f'a[href="/api/documents/{ids[1]}/content"]')).to_be_visible()
+        dialog.locator('summary', has_text='提取依据').click()
+        source = dialog.locator(f'a[href="/api/documents/{ids[1]}/content"]')
+        expect(source).to_be_visible()
+        original = page.request.get(source.evaluate('link => link.href'))
+        assert original.status == 200 and 'b.png' in original.headers['content-disposition']
+        expect(page.get_by_text('已上传的招聘截图', exact=False)).to_have_count(0)
         assert env['repo'].jobs()['total'] == 0
         dialog.get_by_role('button', name='确认入库', exact=True).click()
         expect(page.locator('#toast')).to_contain_text('岗位已入库')
@@ -694,6 +769,7 @@ def test_page_back_preserves_answer_and_job_editor(browser_env):
     expect(page.locator('#page-title')).to_have_text('面试题库')
     page.go_back()
     expect(row(page, a).get_by_role('textbox', name='面试回答')).to_have_value('离开页面前的思路')
+    open_job_details(row(page, a))
     row(page, a).get_by_role('button', name='编辑岗位').click()
     page.locator('#job-form [name=job_requirement]').fill('未保存的任职要求')
     page.get_by_role('button', name='取消', exact=True).click()
@@ -713,16 +789,112 @@ def test_evaluation_is_inline_routes_and_historical_snapshot_are_preserved(brows
     expect(report).to_contain_text('匹配分 / 100')
     expect(report).to_contain_text('公交 · 单程')
     expect(report).to_contain_text('公里')
-    expect(report).to_contain_text('逐项匹配依据')
+    expect(report).to_contain_text('逐项匹配证据')
     text = report.inner_text()
     assert not any(word in text for word in ['总分', '薪资分', '通勤分', '排名'])
     assert '#/jobs' in page.url
+    open_job_details(row(page, a))
     row(page, a).get_by_role('button', name='编辑岗位').click()
     page.locator('#job-form [name=company]').fill('后来修改的公司')
     page.get_by_role('button', name='保存岗位', exact=True).click()
     expect(row(page, a).locator('.job-overview')).to_contain_text('后来修改的公司')
     expect(row(page, a).locator('.report')).to_contain_text('A公司')
     expect(row(page, a).locator('.report')).not_to_contain_text('后来修改的公司')
+
+
+def test_job_sections_are_independent_and_shared_commute_is_shown_once(browser_env):
+    env, page = browser_env, browser_env['page']
+    a = env['repo'].save_job({**deepcopy(JOBS[0]), 'company': '北辰公司', 'title': '检索工程师',
+                              'evidence': [{'text': '原文里的要求', 'locator': '岗位职责', 'document_id': None}]})
+    endpoints = '通勤测试起点 → 通勤测试终点'
+    report_id = env['repo'].save_report('evaluation', {
+        'title': '测试评估', 'summary': '固定摘要', 'jobs': [{
+            'job_id': a['id'], 'match_score': 80, 'recommendation': '准备项目证据',
+            'supporting_experiences': '1. 检索评测经历', 'key_requirement': '需要三年经验，已确认一年',
+            'matches': [{'requirement': '检索开发', 'evidence': '题库检索项目', 'assessment': '符合'}],
+            'commutes': {
+                'public_transit': {'duration_minutes': 30, 'distance_km': 8, 'route_summary': endpoints + '\n步行 → 地铁'},
+                'driving': {'duration_minutes': 16, 'distance_km': 7.5, 'route_summary': endpoints + '\n环城路'},
+            },
+        }]}, {'jobs': [a]}, 'saved-evaluation', False)['id']
+    visit(env, 'reports?id=' + report_id)
+    job = row(page, a)
+    sections = job.locator(':scope > details')
+    expect(sections).to_have_count(3)
+    summaries = sections.locator(':scope > summary')
+    texts = summaries.all_text_contents()
+    assert '岗位详情' in texts[0] and '评估' in texts[1] and '面试' in texts[2]
+    sizes = summaries.evaluate_all('(nodes) => nodes.map(n => getComputedStyle(n).fontSize)')
+    assert len(set(sizes)) == 1, sizes
+
+    evaluation = job.locator('[data-job-action=evaluate]')
+    interview = job.locator('[data-job-action=interview]')
+    report = evaluation.locator('.report')
+    expect(report).to_be_visible()
+    expect(interview).not_to_have_attribute('open', '')
+    headings = report.get_by_role('heading').all_text_contents()
+    required = ['求职建议', '最有利的经历', '最不利的关键要求', '逐项匹配证据', '单程通勤']
+    assert [head for head in headings if head in required] == required, headings
+    assert report.inner_text().count(endpoints) == 1
+    cards = report.locator('.commute')
+    expect(cards).to_have_count(2)
+    expect(cards.nth(0)).to_contain_text('步行 → 地铁')
+    expect(cards.nth(1)).to_contain_text('环城路')
+    assert all(endpoints not in card.inner_text() for card in cards.all())
+
+    details = open_job_details(job)
+    expect(details.locator('dt', has_text='公司名称').locator('+ dd')).to_have_text('北辰公司')
+    expect(details.locator('dt', has_text='岗位名称').locator('+ dd')).to_have_text('检索工程师')
+    evidence = details.locator('details', has=page.locator('summary', has_text='提取依据'))
+    expect(evidence).not_to_have_attribute('open', '')
+    evidence.locator('summary').click()
+    expect(evidence.get_by_text('原文里的要求', exact=True)).to_be_visible()
+    evaluation.locator(':scope > summary').click()
+    expect(report).not_to_be_visible()
+    expect(details).to_have_attribute('open', '')
+    interview.locator(':scope > summary').click()
+    expect(interview).to_have_attribute('open', '')
+    expect(evaluation).not_to_have_attribute('open', '')
+
+
+def test_delete_selected_evaluation_and_job(browser_env):
+    env, page = browser_env, browser_env['page']
+    a, b = seed_jobs(env)
+    repo = env['repo']
+    for points in (64, 82, 91):
+        repo.save_report('evaluation', {'title': f'评估 {points}', 'jobs': [{'job_id': a['id'], 'match_score': points}]},
+                         {'jobs': [a]}, f'eval-{points}', True)
+    latest, middle, oldest = repo.reports()['items']
+    interview = repo.save_report('interview', {'title': '保留的面试'}, {'jobs': [a]}, 'interview', True)
+    visit(env, 'reports?id=' + middle['id'])
+    job = row(page, a)
+    section = job.locator('[data-job-action=evaluate]')
+    delete = section.get_by_role('button', name='删除本次评估', exact=True)
+    expect(section.locator('.report h2')).to_have_text(middle['data']['title'])
+    expect(delete).to_be_visible()
+    page.once('dialog', lambda dialog: dialog.dismiss())
+    delete.click()
+    assert not [entry for entry in env['requests'] if entry[0] == 'DELETE']
+
+    for selected, remaining in ((middle, latest), (latest, oldest), (oldest, None)):
+        expect(section.locator('.report h2')).to_have_text(selected['data']['title'])
+        page.once('dialog', lambda dialog: dialog.accept())
+        delete.click()
+        if remaining:
+            expect(section.locator('.report h2')).to_have_text(remaining['data']['title'])
+            expect(job.locator('.job-score')).to_contain_text(str(remaining['data']['jobs'][0]['match_score']))
+        else:
+            expect(job.locator('.job-overview')).to_contain_text('待评估')
+            expect(delete).to_have_count(0)
+    assert [r['id'] for r in repo.reports()['items']] == [interview['id']]
+    assert repo.jobs()['total'] == 2
+    remove_job = job.locator('.job-overview').get_by_role('button', name='删除岗位', exact=True)
+    expect(remove_job).to_be_visible()
+    page.once('dialog', lambda dialog: dialog.accept())
+    remove_job.click()
+    expect(job).to_have_count(0)
+    expect(row(page, b)).to_be_visible()
+    assert repo.report(interview['id'])['snapshot']['jobs'][0]['id'] == a['id']
 
 
 def test_old_report_link_shows_missing_job_and_saved_report(browser_env):

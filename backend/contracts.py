@@ -52,7 +52,7 @@ from .schemas import Payload, JobData, ProfileData, QuestionData
 #
 # evaluate：岗位评估
 #   场景：用户在岗位行评估匹配度与通勤；发起前须确认完整个人资料；岗位未披露字段允许为空。
-#   输入：input.job_ids 为 1—10 个岗位 ID。
+#   输入：input.job_ids 只传当前一个岗位的 ID。
 #   返回：evaluation_report；信息不足但已有可用结果时可返回 partial。
 #
 # interview：岗位面试练习
@@ -189,28 +189,28 @@ class AgentResponse(Payload):
 
 # 3.1 ReportJob：评估报告中的单个岗位
 class RequirementMatch(Payload):
-    """把岗位要求对应到个人经历证据；unknown 表示材料不足，不能当作能力不足。"""
+    """把岗位要求对应到个人经历证据；缺少依据时标为“资料不足”。"""
     # requirement：岗位的一项要求；必填非空字符串；示例："具备 Python 开发经验"。
     requirement: str = Field(title='岗位要求', min_length=1, description='从本岗位 JD 提取的一项具体要求。')
 
     # evidence：该要求对应的经历依据；默认 ""，无长度上限；示例："维护 Python 接口平台"。
     evidence: str = Field(title='匹配依据', default='', description='画像中支持本项判断的经历或技能依据；缺少依据时留空，不编造经历。')
 
-    # assessment：matched 符合、partial 部分符合、gap 明确差距、unknown 资料不足。
-    #   默认 unknown；示例："partial"，不要把缺少证据直接断言为没有能力。
-    assessment: Literal['matched', 'partial', 'gap', 'unknown'] = Field(title='匹配判断', default='unknown', description='匹配判断：matched 符合，partial 部分符合，gap 有明确差距，unknown 资料不足。缺少证据不等于没有能力。')
+    # assessment：有明确依据时判断符合程度，证据不足时保留“资料不足”。
+    #   默认“资料不足”；示例：“部分符合”，不要把缺少证据直接断言为没有能力。
+    assessment: Literal['符合', '部分符合', '不符合', '资料不足'] = Field(title='匹配判断', default='资料不足', description='有明确差距时填“不符合”；缺少判断依据时填“资料不足”。')
 
 
 class JobMatchAnalysis(BaseModel):
     """模型根据一个岗位和候选人画像填写的分析。"""
     # matches：要求与经历的对应分析；默认 []，每项为 RequirementMatch。
-    #   示例：[{"requirement": "Python", "evidence": "接口平台项目", "assessment": "matched"}]。
+    #   示例：[{"requirement": "Python", "evidence": "接口平台项目", "assessment": "符合"}]。
     matches: list[RequirementMatch] = Field(title='逐项匹配', default_factory=list, description='逐项对应 JD 要求与候选人经历的分析列表；各项依据须属于当前候选人和岗位。')
 
-    supporting_experiences: list[str] = Field(title='最有利的经历', default_factory=list,
-        description='仅列明确满足重要要求且对投递非常有利的具体经历，指出对应要求；没有则返回空列表。')
-    key_requirement: str | None = Field(title='最不利的关键要求', default=None,
-        description='候选人明确不满足、且最影响投递的一条重要要求及原因。没有明确的重要差距则填 null。')
+    supporting_experiences: str = Field(title='最有利的经历', default='',
+        description='只写对投递非常有利的具体经历及其满足的要求。每条独占一行，从 1. 开始编号，没有则填空字符串。')
+    key_requirement: str = Field(title='最不利的关键要求', default='',
+        description='用一段话说明最影响投递的一条重要要求，以及明确不满足它的依据。没有则填空字符串。')
 
     # recommendation：针对本岗位的建议；默认 ""，无长度上限；示例："先确认地点再决定是否投递"。
     recommendation: str = Field(title='求职建议', default='', description='针对本岗位的求职建议，结合匹配依据和已知限制。')

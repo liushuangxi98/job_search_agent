@@ -36,6 +36,17 @@ class ReportService:
             rows = ReportRepository(session).list()
             return {'items': [self.serialize(row) for row in rows], 'total': len(rows)}
 
+    def delete_evaluation(self, report_id: str):
+        """删除选中的一份岗位评估，岗位资料和其他报告各自保留。"""
+        with self.session_factory.begin() as session:
+            repository = ReportRepository(session)
+            row = repository.get(report_id)
+            if row is None:
+                raise AppError(404, 'NOT_FOUND', '评估记录不存在或已删除')
+            if row.kind != 'evaluation':
+                raise AppError(409, 'REPORT_KIND', '只能删除岗位评估记录')
+            repository.delete(row)
+
     def save(self, kind: str, data: dict, snapshot: dict, run_id: str, is_demo: bool):
         """按运行 ID 保存并返回报告字典，已存在时返回原报告而不覆盖。
 
@@ -83,12 +94,12 @@ def markdown(report):
             lines += ['', '### 匹配依据']
             for item in row.get('matches', []):
                 lines += ['- 要求：' + item.get('requirement', ''), '  依据：' + item.get('evidence', '')]
-            for name, field in [('最有利的经历', 'supporting_experiences'), ('优势', 'strengths'),
+            for name, field in [('最有利的经历', 'supporting_experiences'), ('最不利的关键要求', 'key_requirement'), ('优势', 'strengths'),
                                 ('差距', 'gaps'), ('信息盲区', 'missing')]:
-                if row.get(field):
-                    lines += ['', '### ' + name] + ['- ' + text for text in row[field]]
-            if row.get('key_requirement'):
-                lines += ['', '### 最不利的关键要求', row['key_requirement']]
+                value = row.get(field)
+                if value:
+                    body = '\n'.join('- ' + text for text in value) if isinstance(value, list) else value
+                    lines += ['', '### ' + name, '', body]
             lines += ['', '### 单程通勤', '| 方式 | 分钟 | 公里 | 主要路线 |', '| --- | ---: | ---: | --- |']
             for mode, label in [('public_transit', '公共交通'), ('driving', '驾车')]:
                 route = row.get('commutes', {}).get(mode, {})
