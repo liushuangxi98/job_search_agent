@@ -3,6 +3,7 @@ from backend.contracts import AgentCommand, AgentResponse, ApplicationServices
 from .chat import reply
 from .parse_resume import get_resume
 from .extract_job import get_job
+from .evaluate import evaluate
 
 
 async def handle(command: AgentCommand, services: ApplicationServices, emit) -> AgentResponse:
@@ -15,6 +16,8 @@ async def handle(command: AgentCommand, services: ApplicationServices, emit) -> 
         if command.human_input['decision'] == 'start':
             services.clear_history(command)
         return await get_job(command, services, emit)
+    elif command.action == 'evaluate':
+        return await evaluate(command, emit)
     return AgentResponse(
         status='failed', kind='chat',
         data={'message': f'动作 {command.action} 尚未实现。'},
@@ -45,7 +48,7 @@ async def handle(command: AgentCommand, services: ApplicationServices, emit) -> 
 #
 # evaluate：岗位评估
 #   场景：用户在岗位行评估匹配度与通勤；发起前须确认完整个人资料和岗位信息盲区。
-#   输入：input.job_ids 为 1—10 个岗位 ID。
+#   输入：input.job_ids 只传当前一个岗位的 ID。
 #   返回：evaluation_report；信息不足但已有可用结果时可返回 partial。
 #
 # interview：岗位面试练习
@@ -90,10 +93,10 @@ async def handle(command: AgentCommand, services: ApplicationServices, emit) -> 
 #   示例：{}。
 #
 # evaluation_report：岗位评估报告
-#   必填：jobs；每项对应 ReportJob，必填 job_id、company、title。
+#   必填：jobs；每项通过 job_id 关联本次快照。
 #   示例：
 #     {"jobs": [
-#       {"job_id": "job_001", "company": "星河科技", "title": "Agent 开发"}
+#       {"job_id": "job_001"}
 #     ]}
 #
 # interview_question：当前一轮面试问题

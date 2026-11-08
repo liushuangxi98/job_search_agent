@@ -15,4 +15,5 @@ class AgentSettings(BaseSettings):
     llm_model: str = Field(title='聊天模型名称', default='deepseek-flash', min_length=1)
     llm_api_key: SecretStr = Field(title='模型API密钥', default=SecretStr(''), repr=False)
     llm_base_url: str = Field(title='模型服务地址', default='https://api.deepseek.com', min_length=1)
+    amap_api_key: SecretStr = Field(title='高德 Web 服务 Key', default=SecretStr(''), repr=False)
 
