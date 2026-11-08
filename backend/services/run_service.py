@@ -53,6 +53,7 @@ class Run:
     task: object = None
     usage: dict | None = None
     previous_usage: dict | None = None
+    questions_saved: bool = False
 
 
 class RunService:
@@ -244,6 +245,19 @@ class RunService:
                 raise AppError(422, 'INVALID_PROPOSAL', '提案包含不可修改字段')
             return self.repository.save_job({**current['data'], **changes}, key, revision)
         raise AppError(422, 'INVALID_PROPOSAL', '不支持此修改目标')
+
+    async def confirm_questions(self, key, knowledge):
+        """同一运行确认多次只保存一次；整批入库成功后再标记已保存。"""
+        async with self.lock:
+            run = self.runs.get(key)
+            if run is None:
+                raise AppError(404, 'RUN_EXPIRED', '题库导入运行已失效，请重新发起')
+            if (run.action != 'index_knowledge' or run.status not in {'completed', 'partial'}
+                    or run.result['kind'] != 'knowledge_result'):
+                raise AppError(409, 'NO_QUESTION_DRAFT', '该运行没有可确认的题库导入结果')
+            if not run.questions_saved:
+                knowledge.import_questions(run.input.get('document_id'), run.result['data']['questions'])
+                run.questions_saved = True
 
     async def respond(self, key: str, body: RunInput):
         """消费当前待处理输入并返回运行状态；重复或过期 input_id 会抛 AppError。

@@ -17,12 +17,6 @@ def questions(service: KnowledgeServiceDep, q: str = '', offset: int = Query(0, 
     return service.list('questions', q, offset, limit)
 
 
-@router.post('/knowledge/questions', status_code=201)
-def create_question(body: QuestionData, service: KnowledgeServiceDep):
-    """保存 body 中的题目并返回 201 和记录对象；可选的 document_id 指向不存在资料时返回 404。"""
-    return service.save('questions', body.model_dump())
-
-
 @router.put('/knowledge/questions/{key}')
 def update_question(key: str, body: QuestionData, service: KnowledgeServiceDep):
     """用 body 替换 key 对应的题目并返回记录对象；题目或指定的来源资料不存在时返回 404。"""

@@ -44,7 +44,7 @@ async def handle(command: AgentCommand, services: ApplicationServices, emit) -> 
 #   场景：用户导入本地 MD 题库。
 #   输入：input.document_id 引用 knowledge 资料。
 #   返回：knowledge_result，展示处理摘要。
-#   业务约定：Agent 自行保存元数据和索引，不能仅靠返回值完成入库。
+#   业务约定：Agent 返回题目草稿；用户确认后由应用保存，向量索引另行处理。
 #
 # evaluate：岗位评估
 #   场景：用户在岗位行评估匹配度与通勤；发起前须确认完整个人资料和岗位信息盲区。
@@ -89,7 +89,7 @@ async def handle(command: AgentCommand, services: ApplicationServices, emit) -> 
 #
 # knowledge_result：题库导入或索引摘要
 #   必填：无；questions、coverage 默认 []。
-#   保存：题目元数据和向量索引仍由 Agent 实际写入。
+#   保存：题目元数据由应用确认导入，向量索引另行写入。
 #   示例：{}。
 #
 # evaluation_report：岗位评估报告

@@ -28,12 +28,20 @@ class KnowledgeService:
             rows, total = KnowledgeRepository(session).list(kind, query, offset, limit)
             return {'items': [self.serialize(row) for row in rows], 'total': total}
 
-    def save(self, kind: str, data: dict, record_id=None):
-        """校验并保存题目或记忆，返回记录字典；record_id 为空表示新增。
+    def import_questions(self, document_id, questions):
+        """把运行契约已校验的题目一起写入数据库，来源统一取本次上传的 MD。"""
+        with self.session_factory.begin() as session:
+            document = DocumentRepository(session).get(document_id) if document_id else None
+            if document is None or document.kind != 'knowledge':
+                raise AppError(409, 'KNOWLEDGE_SOURCE_REQUIRED', '请先上传有效的 MD 题库，再确认导入')
+            repository = KnowledgeRepository(session)
+            for question in questions:
+                repository.save('questions', {**question, 'document_id': document_id})
 
-        题目 document_id 可为空，但已提供的来源必须存在；数据非法或记录缺失会抛异常。
-        仅操作 MySQL 元数据，不建立向量索引，也不替调用方执行记忆确认。
-        """
+    def save(self, kind: str, data: dict, record_id=None):
+        """更新已有题目，或新增、更新记忆。题目新增统一走导入确认。"""
+        if kind == 'questions' and not record_id:
+            raise AppError(422, 'QUESTION_IMPORT_REQUIRED', '新增题目请通过 MD 题库导入')
         data = SCHEMAS[kind].model_validate(data).model_dump()
         with self.session_factory.begin() as session:
             repository = KnowledgeRepository(session)

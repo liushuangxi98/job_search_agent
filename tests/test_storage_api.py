@@ -67,11 +67,41 @@ def test_bad_file_and_over_limit_upload_leave_no_files(client, settings):
     assert not list((settings.data_dir / 'uploads').iterdir())
 
 
-def test_question_and_memory_crud(client):
-    question = client.post('/api/knowledge/questions', json={
-        'question': '解释召回与重排', 'answer': '两阶段检索', 'tags': ['RAG']})
-    assert question.status_code == 201
-    assert client.get('/api/knowledge/questions?q=召回').json()['total'] == 1
+def test_questions_created_only_from_confirmed_import(client, monkeypatch):
+    from backend.contracts import AgentResponse
+    from test_runs_api import start
+
+    url = '/api/knowledge/questions'
+    assert client.post(url, json={'question': '手工创建'}).status_code == 405
+    doc = client.post('/api/documents', data={'kind': 'knowledge'}, files={'file': ('测试.md', b'# test')}).json()
+    async def handle(command, services, emit):
+        return AgentResponse(kind='knowledge_result', data={'questions': [{'question': '召回'}, {'question': '重排'}]})
+    monkeypatch.setattr(client.app.state.run_service, 'handler', handle)
+    wrong_run = start(client, 'chat', text='测试')
+    assert client.post(f"/api/runs/{wrong_run['id']}/confirm-questions").status_code == 409
+    run = start(client, 'index_knowledge', document_id=doc['id'])
+    assert client.get(url).json()['total'] == 0
+    confirm = f"/api/runs/{run['id']}/confirm-questions"
+    # 模拟第二道题写入失败；第一道须回滚，同一次确认随后可以重试。
+    from backend.repositories.knowledge_repository import KnowledgeRepository
+    from sqlalchemy.exc import SQLAlchemyError
+    save = KnowledgeRepository.save
+    def fail_second(repository, kind, data, row=None):
+        if data['question'] == '重排':
+            raise SQLAlchemyError('test')
+        return save(repository, kind, data, row)
+    with monkeypatch.context() as failure:
+        failure.setattr(KnowledgeRepository, 'save', fail_second)
+        assert client.post(confirm).status_code == 503
+    assert client.get(url).json()['total'] == 0
+    assert client.post(confirm).status_code == 204
+    assert client.post(confirm).status_code == 204
+    questions = client.get(url).json()['items']
+    assert sorted(q['data']['question'] for q in questions) == ['召回', '重排']
+    assert all(q['data']['document_id'] == doc['id'] for q in questions)
+
+
+def test_memory_crud(client):
     memory = client.post('/api/memories', json={'content': '偏好杭州', 'category': 'preference', 'evidence': '用户确认'})
     assert memory.status_code == 201
     assert client.delete('/api/memories/' + memory.json()['id']).status_code == 204

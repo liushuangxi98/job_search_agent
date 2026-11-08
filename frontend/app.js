@@ -266,9 +266,9 @@ async function jobsPage() {
 }
 async function knowledgePage() {
   const [docs, questions] = await Promise.all([api('/documents?kind=knowledge'), api('/knowledge/questions?limit=100')]);
-  return `<div class="page-intro"><div><h2>为下一次交流，积累一点准备</h2><p>上传 Markdown 题库，也可以手动整理题目与答案。</p></div>${button('＋ 手动添加题目', 'new-question', '', 'secondary')}</div><div data-page-run="knowledge"></div>
+  return `<div class="page-intro"><div><h2>为下一次交流，积累一点准备</h2><p>上传 Markdown 题库，核对处理结果后保存题目。</p></div></div><div data-page-run="knowledge"></div>
     <div class="split"><div class="stack">${card('知识资料', 'UTF-8 Markdown · 单文件不超过 16 MiB', uploadBox('knowledge', '导入 MD 题库', '逐份上传、整理和核对') + fileRows(docs.items, 'index-knowledge'))}<div class="tip">原文保存后仍需整理题目。固定模拟样例不解析你的文件，也不建立向量索引。</div></div>
-    <article class="card"><header class="card-head"><div><h2>我的题目</h2><p>共 ${questions.total} 道 · 展示最近 100 条</p></div></header>${questions.items.length ? questions.items.map(x => `<section class="question-item"><header><h3>${esc(x.data.question)}</h3><div class="actions">${button('编辑', 'edit-question', idAttr(x.id), 'ghost small')}${button('移除', 'delete-question', idAttr(x.id), 'ghost small')}</div></header><div class="chip-list">${(x.data.tags || []).map(tag => `<span class="chip">${esc(tag)}</span>`).join('')}</div><details><summary>参考答案与来源</summary><p>${esc(x.data.answer || '未提供参考答案')}</p><small>${esc(x.data.locator || '人工录入')}</small>${x.data.document_id ? `<a href="/api/documents/${encodeURIComponent(x.data.document_id)}/content" target="_blank" rel="noopener"> 原文 ↗</a>` : ''}</details></section>`).join('') : empty('题库还是空的', '从一道题开始，留下答案与来源。')}</article></div>`;
+    <article class="card"><header class="card-head"><div><h2>我的题目</h2><p>共 ${questions.total} 道 · 展示最近 100 条</p></div></header>${questions.items.length ? questions.items.map(x => `<section class="question-item"><header><h3>${esc(x.data.question)}</h3><div class="actions">${button('编辑', 'edit-question', idAttr(x.id), 'ghost small')}${button('移除', 'delete-question', idAttr(x.id), 'ghost small')}</div></header><div class="chip-list">${(x.data.tags || []).map(tag => `<span class="chip">${esc(tag)}</span>`).join('')}</div><details><summary>参考答案与来源</summary><p>${esc(x.data.answer || '未提供参考答案')}</p><small>${esc(x.data.locator || '未记录来源位置')}</small>${x.data.document_id ? `<a href="/api/documents/${encodeURIComponent(x.data.document_id)}/content" target="_blank" rel="noopener"> 原文 ↗</a>` : ''}</details></section>`).join('') : empty('题库还是空的', '请先导入 Markdown 题库。')}</article></div>`;
 }
 
 function placeField(side, label, names) {
@@ -607,7 +607,7 @@ function reviewResult(run) {
     state.modal = {kind, data, batch};
     openDialog('确认待导入岗位', hint + `<p class="caption">请补齐所有岗位字段后确认入库。明确不限工作经验时填 0。</p><form id="job-draft-form"><section class="draft-job"><label class="caption"><input type="checkbox" data-skip-draft> 跳过此条</label><fieldset><div class="form-grid">${jobFields(data)}</div>${jobEvidence(data.evidence || [])}</fieldset></section></form>`, '<button form="job-draft-form" type="submit">确认入库</button>');
   } else if (kind === 'knowledge_result') {
-    state.modal = {kind, data: data.questions || [], batch: state.runBatches.get(run.id)};
+    state.modal = {kind, runId: run.id, batch: state.runBatches.get(run.id)};
     openDialog('核对题库处理结果', hint + (data.questions || []).map(q => `<section class="detail-section"><h3>${esc(q.question)}</h3><p class="prose">${esc(q.answer)}</p><small>${esc(q.locator || '')}</small></section>`).join(''), button('确认保存题目', 'save-questions'));
   }
   updateControls();
@@ -617,12 +617,12 @@ async function editJob(id) {
   state.modal = {kind: 'job', item};
   openDialog('编辑岗位', `<form id="job-form"><div class="tip">请填写完整的岗位信息。提取依据仅供核对。</div><div class="form-grid">${jobFields(item.data)}</div>${jobEvidence(item.data.evidence || [])}</form>`, '<button type="submit" form="job-form">保存岗位</button>');
 }
-async function editQuestion(id = null) {
-  const response = id ? await api('/knowledge/questions?limit=500') : null;
-  const item = id ? response.items.find(x => x.id === id) : {data: {}};
+async function editQuestion(id) {
+  const response = await api('/knowledge/questions?limit=500');
+  const item = response.items.find(x => x.id === id);
   if (!item) throw new Error('题目不存在，请刷新。');
   state.modal = {kind: 'question', item};
-  openDialog(id ? '编辑题目' : '手动添加题目', `<form id="question-form"><div class="form-grid">${field('题目', 'question', item.data.question, {area: true, full: true, required: true, maxLength: 10000})}${field('参考答案', 'answer', item.data.answer, {area: true, full: true, rows: 5, maxLength: 30000})}${field('知识点', 'tags', (item.data.tags || []).join('，'), {full: true})}${field('来源位置 / 说明', 'locator', item.data.locator, {full: true, maxLength: 500})}</div></form>`, '<button form="question-form" type="submit">保存题目</button>');
+  openDialog('编辑题目', `<form id="question-form"><div class="form-grid">${field('题目', 'question', item.data.question, {area: true, full: true, required: true, maxLength: 10000})}${field('参考答案', 'answer', item.data.answer, {area: true, full: true, rows: 5, maxLength: 30000})}${field('知识点', 'tags', (item.data.tags || []).join('，'), {full: true})}${field('来源位置 / 说明', 'locator', item.data.locator, {full: true, maxLength: 500})}</div></form>`, '<button form="question-form" type="submit">保存题目</button>');
 }
 async function editMemory(id = null) {
   const response = id ? await api('/memories') : null;
@@ -710,12 +710,9 @@ async function saveQuestions() {
   const operation = state.modal;
   if (operation?.saving) return;
   operation.saving = true;
-  operation.saved ||= 0;
   try {
-    for (; operation.saved < operation.data.length; operation.saved++) {
-      if (state.modal !== operation || operation.batch?.cancelled) return;
-      await api('/knowledge/questions', {method: 'POST', body: operation.data[operation.saved]});
-    }
+    await api('/runs/' + encodeURIComponent(operation.runId) + '/confirm-questions', {method: 'POST'});
+    if (state.modal !== operation || operation.batch?.cancelled) return;
     closeDialog();
     await render();
     toast('题目已确认保存。');
@@ -861,7 +858,6 @@ const actions = {
   'evaluate-job': element => begin('evaluate', {job_ids: [element.dataset.id]}, null, element.dataset.id),
   'interview-job': element => begin('interview', {job_id: element.dataset.id}, null, element.dataset.id),
   'run-decision': element => respond(element.dataset.id, element.dataset.decision),
-  'new-question': () => editQuestion(),
   'edit-question': element => editQuestion(element.dataset.id),
   'delete-question': async element => {
     if (!confirm('移除这道题？')) return;
@@ -920,7 +916,7 @@ document.addEventListener('submit', async event => {
       const item = state.modal.item;
       data.tags = splitWords(data.tags);
       data.document_id = item.data.document_id || null;
-      await api('/knowledge/questions' + (item.id ? '/' + encodeURIComponent(item.id) : ''), {method: item.id ? 'PUT' : 'POST', body: data});
+      await api('/knowledge/questions/' + encodeURIComponent(item.id), {method: 'PUT', body: data});
       closeDialog();
       await render();
       toast('题目已保存。');

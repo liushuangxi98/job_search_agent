@@ -65,7 +65,7 @@ class AgentDataService:
         return self.knowledge.list(kind, q, offset, limit)
 
     def save_record(self, kind, data, key=None):
-        """保存题目或记忆并返回字典；key 为空新增，数据或来源错误沿用业务服务异常。"""
+        """更新题目或保存记忆；仅记忆允许省略 key 新增。"""
         return self.knowledge.save(kind, data, key)
 
     def delete_record(self, kind, key):

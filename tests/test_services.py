@@ -65,7 +65,11 @@ def test_failed_document_metadata_write_removes_new_file(client, settings, monke
 
 def test_service_failed_question_update_preserves_original_record(client):
     service = client.app.state.knowledge_service
-    saved = service.save('questions', {'question': '什么是 RAG？'})
+    with pytest.raises(AppError, match='题库导入'):
+        service.save('questions', {'question': '手工创建'})
+    source = client.post('/api/documents', data={'kind': 'knowledge'}, files={'file': ('测试.md', b'# test')}).json()
+    service.import_questions(source['id'], [{'question': '什么是 RAG？'}])
+    saved, = service.list('questions')['items']
     before = service.list('questions')
 
     with pytest.raises(AppError):

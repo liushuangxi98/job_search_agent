@@ -48,7 +48,7 @@ from .schemas import Payload, JobData, ProfileData, QuestionData
 #   场景：用户导入本地 MD 题库。
 #   输入：input.document_id 引用 knowledge 资料。
 #   返回：knowledge_result，展示处理摘要。
-#   业务约定：Agent 自行保存元数据和索引，不能仅靠返回值完成入库。
+#   业务约定：Agent 返回题目草稿；用户确认后由应用保存，向量索引另行处理。
 #
 # evaluate：岗位评估
 #   场景：用户在岗位行评估匹配度与通勤；发起前须确认完整个人资料；岗位未披露字段允许为空。
@@ -264,7 +264,7 @@ class KnowledgeResultData(DisplayData):
     """题库处理摘要；返回题目列表不代表应用已经替 Agent 保存元数据或向量。"""
 
     # questions：导入后展示的题目；可省略，默认 []，每项为 schemas.QuestionData，列表不限条数。
-    #   示例：[{"question": "什么是 RAG？", "tags": ["RAG"]}]；真实入库由 Agent 另外执行。
+    #   示例：[{"question": "什么是 RAG？", "tags": ["RAG"]}]；用户确认后由应用整批入库。
     questions: list[QuestionData] = Field(title='题目列表', default_factory=list, description='本次题库处理得到的题目列表，包含题干、答案及来源；返回列表本身不代表元数据或向量已保存。')
 
     # coverage：题库覆盖的知识点名称；可省略，默认 []，不限条数的字符串列表，不是覆盖率数值。
@@ -458,7 +458,7 @@ class PendingInput(Payload):
 #
 # knowledge_result：题库导入或索引摘要
 #   必填：无；questions、coverage 默认 []。
-#   保存：题目元数据和向量索引仍由 Agent 实际写入。
+#   保存：题目元数据由应用确认导入，向量索引另行写入。
 #   示例：{}。
 #
 # evaluation_report：岗位评估报告
