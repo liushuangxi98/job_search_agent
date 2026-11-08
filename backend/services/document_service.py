@@ -12,9 +12,8 @@ from ..repositories.document_repository import DocumentRepository
 MIB = 1024 * 1024
 TYPES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
          '.webp': 'image/webp', '.pdf': 'application/pdf',
-         '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-         '.md': 'text/markdown'}
-ALLOWED = {'image': {'.png', '.jpg', '.jpeg', '.webp'}, 'resume': {'.pdf', '.docx'}, 'knowledge': {'.md'}}
+         '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
+ALLOWED = {'image': {'.png', '.jpg', '.jpeg', '.webp'}, 'resume': {'.pdf', '.docx'}}
 
 
 class DocumentService:
@@ -62,7 +61,7 @@ class DocumentService:
     def delete_metadata(self, document_id: str):
         """只删除资料元数据，成功无返回值，记录缺失抛 AppError。
 
-        外键会清理关联题目和岗位来源行，但不删除磁盘文件或改写报告快照。
+        外键会清理岗位来源行，但不删除磁盘文件或改写报告快照。
         """
         with self.session_factory.begin() as session:
             repository = DocumentRepository(session)
@@ -83,14 +82,14 @@ class DocumentService:
     async def save(self, upload, kind):
         """保存具有 filename、异步 read/close 的上传对象，返回元数据字典。
 
-        kind 为 image、resume 或 knowledge；图片上限 8 MiB，其余为 16 MiB。
+        kind 为 image 或 resume；图片上限 8 MiB，其余为 16 MiB。
         超限抛 413，格式错误抛 422；进入写入阶段后失败会清理新文件并关闭上传对象。
         类型提前拒绝发生在清理块之前，此时本方法不会关闭 upload。
         """
         filename = PureWindowsPath(upload.filename or '').name
         extension = Path(filename).suffix.lower()
         if kind not in ALLOWED or extension not in ALLOWED[kind] or len(filename) > 255:
-            raise AppError(422, 'FILE_TYPE', '图片支持 PNG/JPG/WebP，简历支持 PDF/DOCX，题库支持 MD')
+            raise AppError(422, 'FILE_TYPE', '图片支持 PNG/JPG/WebP，简历支持 PDF/DOCX')
         limit = (8 if kind == 'image' else 16) * MIB
         stored_name = uuid.uuid4().hex + extension
         path = self.directory / stored_name
@@ -120,7 +119,7 @@ class DocumentService:
 
     @staticmethod
     def _validate(path, extension):
-        """只检查基本文件标识或 MD 编码；不承担文档解析、OCR 或完整图片解码。"""
+        """只检查基本文件标识；不承担文档解析、OCR 或完整图片解码。"""
         with path.open('rb') as source:
             head = source.read(12)
         valid = True
@@ -138,14 +137,8 @@ class DocumentService:
                     valid = 'word/document.xml' in archive.namelist()
             except zipfile.BadZipFile:
                 valid = False
-        elif extension == '.md':
-            try:
-                content = path.read_text(encoding='utf-8-sig')
-                valid = '\x00' not in content
-            except UnicodeError:
-                valid = False
         if not valid:
-            raise AppError(422, 'FILE_CONTENT', '文件内容与扩展名不符，或 MD 不是 UTF-8 文本')
+            raise AppError(422, 'FILE_CONTENT', '文件内容与扩展名不符')
 
     def delete(self, document_id):
         """先删除资料元数据，再移除磁盘文件；成功无返回值，资料或文件缺失抛 AppError。

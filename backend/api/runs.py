@@ -1,8 +1,8 @@
 """运行状态与人工输入接口，运行流程由 RunService 管理。"""
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Query
 
 from ..contracts import RunInput, RunStart
-from .dependencies import KnowledgeServiceDep, RunServiceDep
+from .dependencies import RunServiceDep
 
 # FastAPI 从 JSON 请求体校验 body，从路径读取 key；服务另建后台任务执行 Agent。
 # 202 表示请求已受理，页面通过 GET 轮询结果；后台失败写入运行状态，不改变已发出的 HTTP 响应。
@@ -31,13 +31,6 @@ def get_run(key: str, service: RunServiceDep, after: int = Query(0, ge=0)):
     响应含 id、status、events、next_seq、result、pending_input、report_id 等；运行丢失时返回 404 RUN_EXPIRED。
     """
     return service.get(key, after)
-
-
-@router.post('/{key}/confirm-questions', status_code=204)
-async def confirm_questions(key: str, service: RunServiceDep, knowledge: KnowledgeServiceDep):
-    """确认本次 MD 导入产生的题目；题目内容由服务端从运行结果读取。"""
-    await service.confirm_questions(key, knowledge)
-    return Response(status_code=204)
 
 
 @router.post('/{key}/input', status_code=202)

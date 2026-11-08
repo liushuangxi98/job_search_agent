@@ -4,7 +4,7 @@ from typing import Callable, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from .schemas import Payload, JobData, ProfileData, QuestionData
+from .schemas import Payload, JobData, ProfileData
 
 # 阅读导航
 #   1. Action / RunStart / RunInput：用户请求什么，怎样补充输入。
@@ -22,7 +22,7 @@ from .schemas import Payload, JobData, ProfileData, QuestionData
 #   模型规则与业务约定：
 #     只有类型、Field 和校验器中的规则会被模型强制检查，业务约定由 Agent 实现。
 #     Payload 子类拒绝未声明的 key，并去除字符串首尾空白，见 schemas.Payload。
-#     展示模型允许附加字段；业务模型 ProfileData、JobData、QuestionData 按各自定义校验。
+#     展示模型允许附加字段；业务模型 ProfileData、JobData 按各自定义校验。
 #   示例：
 #     ID 仅展示用途，实际使用真实资料、岗位或题目 ID；模型不统一校验 ID 格式。
 
@@ -43,12 +43,6 @@ from .schemas import Payload, JobData, ProfileData, QuestionData
 #   请求：input.document_id 引用 image 资料，或 input.text 提供原文。
 #   Agent 从 command.human_input["text"] 读取招聘原文。
 #   返回：job_drafts，供用户编辑后入库。
-#
-# index_knowledge：题库导入与索引
-#   场景：用户导入本地 MD 题库。
-#   输入：input.document_id 引用 knowledge 资料。
-#   返回：knowledge_result，展示处理摘要。
-#   业务约定：Agent 返回题目草稿；用户确认后由应用保存，向量索引另行处理。
 #
 # evaluate：岗位评估
 #   场景：用户在岗位行评估匹配度与通勤；发起前须确认完整个人资料；岗位未披露字段允许为空。
@@ -71,13 +65,13 @@ from .schemas import Payload, JobData, ProfileData, QuestionData
 #   上述为业务推荐映射，运行服务不强制校验 action 与 kind 是否配对。
 #   任意动作需要澄清时可暂时返回 chat + needs_input，恢复后仍收到原 action。
 #   真实模式的资料和文本前提由 RunService 检查；demo 可不提供资料以演示固定结果。
-Action = Literal['parse_resume', 'extract_jobs', 'index_knowledge', 'evaluate', 'interview', 'chat']
+Action = Literal['parse_resume', 'extract_jobs', 'evaluate', 'interview', 'chat']
 
 
 class RunStart(Payload):
     """发起运行的请求；action 选择处理能力，input 放任务输入，context 标识关联对象。"""
 
-    # action：用户要执行的动作；必填，限上方 6 个值。
+    # action：用户要执行的动作；必填，限上方 5 个值。
     #   示例："evaluate"。
     action: Action = Field(title='任务动作')
 
@@ -153,9 +147,9 @@ class AgentResponse(Payload):
     #   通用规则：running 由应用管理；上述 4 个状态均不触发自动重试。
     status: Literal['needs_input', 'completed', 'partial', 'failed'] = Field(default='completed', title='运行状态')
 
-    # kind：结果类别；必填，限下方 7 个值；对应模型、业务场景与必填 key 见 RESULT_SCHEMAS 上方。
+    # kind：结果类别；必填，限下方 6 个值；对应模型、业务场景与必填 key 见 RESULT_SCHEMAS 上方。
     #   示例："evaluation_report"；"error" 是运行服务生成的内部结果类型，Agent 不能返回它。
-    kind: Literal['profile_draft', 'job_drafts', 'knowledge_result', 'evaluation_report',
+    kind: Literal['profile_draft', 'job_drafts', 'evaluation_report',
                   'interview_question', 'interview_report', 'chat'] = Field(title='结果类别')
 
     # data：展示数据；外层可省略，默认 {}，但随后仍须通过 kind 对应的模型校验。
@@ -249,7 +243,7 @@ class CommuteResult(BaseModel):
     route_summary: str = Field(title='主要路线', default='', description='实际查询得到的主要线路或路径说明；未知时留空，不编造路线。')
 
 
-# 3.3 DisplayData：7 种结果共用的展示字段
+# 3.3 DisplayData：报告与聊天结果共用的展示字段
 class DisplayData(BaseModel):
     """允许 Agent 保留附加展示字段，子类只校验界面必需的已声明字段。"""
     model_config = {'extra': 'allow'}
@@ -257,19 +251,6 @@ class DisplayData(BaseModel):
     # notice：展示结果可继承此提示字段；可省略，默认 ""，无长度限制。
     #   示例："部分信息缺失，请核对后再保存。"；不是 status，也不负责触发确认流程。
     notice: str = Field(title='结果提示', default='', description='给用户的结果提示，例如资料缺失或固定样例说明。')
-
-
-# 3.6 KnowledgeResultData：题库导入与索引摘要
-class KnowledgeResultData(DisplayData):
-    """题库处理摘要；返回题目列表不代表应用已经替 Agent 保存元数据或向量。"""
-
-    # questions：导入后展示的题目；可省略，默认 []，每项为 schemas.QuestionData，列表不限条数。
-    #   示例：[{"question": "什么是 RAG？", "tags": ["RAG"]}]；用户确认后由应用整批入库。
-    questions: list[QuestionData] = Field(title='题目列表', default_factory=list, description='本次题库处理得到的题目列表，包含题干、答案及来源；返回列表本身不代表元数据或向量已保存。')
-
-    # coverage：题库覆盖的知识点名称；可省略，默认 []，不限条数的字符串列表，不是覆盖率数值。
-    #   示例：["RAG", "工具调用"]。
-    coverage: list[str] = Field(title='覆盖知识点', default_factory=list, description='本次题库覆盖的知识点名称列表，例如 RAG、工具调用；不是覆盖率分数。')
 
 
 # 3.7 EvaluationReportData：岗位评估报告
@@ -456,11 +437,6 @@ class PendingInput(Payload):
 #   一次运行交付一个 JobData 字典，等待用户预览保存。
 #   示例：{"title": "Agent 开发工程师"}。
 #
-# knowledge_result：题库导入或索引摘要
-#   必填：无；questions、coverage 默认 []。
-#   保存：题目元数据由应用确认导入，向量索引另行写入。
-#   示例：{}。
-#
 # evaluation_report：岗位评估报告
 #   必填：jobs；每项通过 job_id 关联本次快照。
 #   示例：
@@ -493,7 +469,7 @@ class PendingInput(Payload):
 #   仅评估/面试报告在 completed 或 partial 状态下由应用自动保存快照报告。
 RESULT_SCHEMAS = {
     'profile_draft': ProfileData, 'job_drafts': JobData,
-    'knowledge_result': KnowledgeResultData, 'evaluation_report': EvaluationReportData,
+    'evaluation_report': EvaluationReportData,
     'interview_question': InterviewQuestionData, 'interview_report': InterviewReportData,
     'chat': ChatData,
 }

@@ -3,7 +3,6 @@ import {api, esc, field, formData, empty, money, score, when} from './api.js';
 const $ = selector => document.querySelector(selector);
 const pages = {
   resume: ['简历画像', '01 / 个人经历与求职条件'],
-  knowledge: ['面试题库', '02 / 积累自己的练习资料'],
   jobs: ['岗位池', '我的机会 / 逐个了解，认真选择'],
 };
 const labels = {
@@ -20,7 +19,7 @@ const requiredProfileKeys = [
 const editableProfileKeys = requiredProfileKeys;
 const commuteModes = {'': '请选择', '公共交通': '公共交通', '驾车': '驾车'};
 const jobTextKeys = ['company', 'title', 'city', 'address', 'job_description', 'job_requirement', 'education'];
-const actionNames = {parse_resume: '简历整理', extract_jobs: '岗位提取', index_knowledge: '题库整理', evaluate: '岗位评估', interview: '模拟面试', chat: '聊天'};
+const actionNames = {parse_resume: '简历整理', extract_jobs: '岗位提取', evaluate: '岗位评估', interview: '模拟面试', chat: '聊天'};
 const state = {
   page: 'jobs', params: new URLSearchParams(), health: null, generation: 0,
   candidate: null, profileDraft: null, drafts: {},
@@ -264,13 +263,6 @@ async function jobsPage() {
     <div data-page-run="jobs"></div><div class="job-list">${state.jobs.length ? state.jobs.map(jobRow).join('') : card('岗位池', '从一个感兴趣的岗位开始', empty('还没有导入岗位', '通过上方的“导入截图”或“粘贴招聘原文”开始。'))}</div>
     <div class="table-footer"><span>共 ${jobs.total} 个岗位</span><div class="actions">${button('上一页', 'jobs-prev', state.offset === 0 ? 'disabled' : '', 'ghost small')}<span>${Math.floor(state.offset / 20) + 1}</span>${button('下一页', 'jobs-next', state.offset + 20 >= jobs.total ? 'disabled' : '', 'ghost small')}</div></div>`;
 }
-async function knowledgePage() {
-  const [docs, questions] = await Promise.all([api('/documents?kind=knowledge'), api('/knowledge/questions?limit=100')]);
-  return `<div class="page-intro"><div><h2>为下一次交流，积累一点准备</h2><p>上传 Markdown 题库，核对处理结果后保存题目。</p></div></div><div data-page-run="knowledge"></div>
-    <div class="split"><div class="stack">${card('知识资料', 'UTF-8 Markdown · 单文件不超过 16 MiB', uploadBox('knowledge', '导入 MD 题库', '逐份上传、整理和核对') + fileRows(docs.items, 'index-knowledge'))}<div class="tip">原文保存后仍需整理题目。固定模拟样例不解析你的文件，也不建立向量索引。</div></div>
-    <article class="card"><header class="card-head"><div><h2>我的题目</h2><p>共 ${questions.total} 道 · 展示最近 100 条</p></div></header>${questions.items.length ? questions.items.map(x => `<section class="question-item"><header><h3>${esc(x.data.question)}</h3><div class="actions">${button('编辑', 'edit-question', idAttr(x.id), 'ghost small')}${button('移除', 'delete-question', idAttr(x.id), 'ghost small')}</div></header><div class="chip-list">${(x.data.tags || []).map(tag => `<span class="chip">${esc(tag)}</span>`).join('')}</div><details><summary>参考答案与来源</summary><p>${esc(x.data.answer || '未提供参考答案')}</p><small>${esc(x.data.locator || '未记录来源位置')}</small>${x.data.document_id ? `<a href="/api/documents/${encodeURIComponent(x.data.document_id)}/content" target="_blank" rel="noopener"> 原文 ↗</a>` : ''}</details></section>`).join('') : empty('题库还是空的', '请先导入 Markdown 题库。')}</article></div>`;
-}
-
 function placeField(side, label, names) {
   const options = names.map((name, i) => `<option value="${i + 1}">${esc(name)}</option>`).join('');
   return `<label class="field"><span>${label}</span><select name="${side}" required>
@@ -296,7 +288,7 @@ function pendingHTML(run) {
 }
 function runHTML(run) {
   const status = {running: '运行中', needs_input: '等待补充', completed: '已完成', partial: '部分结果', failed: '失败'}[run.status];
-  const reviewable = ['profile_draft', 'job_drafts', 'knowledge_result'].includes(run.result?.kind);
+  const reviewable = ['profile_draft', 'job_drafts'].includes(run.result?.kind);
   return `<section class="run-panel"><div class="run-head"><h3>${esc(actionNames[run.action] || '当前活动')}</h3><span class="badge ${run.status === 'failed' ? 'red' : run.status === 'needs_input' ? 'amber' : 'green'}">${status}</span></div>
     ${run.is_demo ? '<p class="caption">固定模拟样例 · 未调用模型或真实工具</p>' : ''}
     ${run.status === 'running' ? '<p class="caption">正在处理，请稍候。当前活动结束前不能开始另一项活动。</p>' : ''}
@@ -316,7 +308,7 @@ function reportTrace(report) {
   return `<details class="trace" data-report-trace="${esc(report.id)}"><summary>执行记录</summary><div></div></details>`;
 }
 function runPage(run) {
-  return {parse_resume: 'resume', extract_jobs: 'jobs', index_knowledge: 'knowledge', evaluate: 'jobs', interview: 'jobs'}[run.action];
+  return {parse_resume: 'resume', extract_jobs: 'jobs', evaluate: 'jobs', interview: 'jobs'}[run.action];
 }
 function updateRunPanels() {
   // 轮询只更新所属流程；输入通过 pending_input.id 保存，历史运行不会抢占活动。
@@ -386,7 +378,7 @@ async function resolveRoute() {
 async function render() {
   const generation = ++state.generation;
   await resolveRoute();
-  const renderer = {resume: resumePage, jobs: jobsPage, knowledge: knowledgePage}[state.page];
+  const renderer = {resume: resumePage, jobs: jobsPage}[state.page];
   const html = await renderer();
   if (generation !== state.generation) return;
   // 请求期间仍可能发生键入，因此在替换 DOM 前再次保存。
@@ -478,7 +470,7 @@ async function settled(run) {
     state.messages.push({role: 'assistant', text: result.data.message || '', context: run.is_demo ? '固定模拟回复' : 'Agent 回复'});
     renderChat();
   }
-  if (['profile_draft', 'job_drafts', 'knowledge_result'].includes(result.kind) && !$('#editor').open) reviewResult(run);
+  if (['profile_draft', 'job_drafts'].includes(result.kind) && !$('#editor').open) reviewResult(run);
   if (run.report_id) {
     state.reports = (await api('/reports')).items;
     const jobId = runJob(run) || reportJobs(state.reports.find(x => x.id === run.report_id) || {})[0];
@@ -606,9 +598,7 @@ function reviewResult(run) {
     state.runBatches.set(run.id, batch);
     state.modal = {kind, data, batch};
     openDialog('确认待导入岗位', hint + `<p class="caption">请补齐所有岗位字段后确认入库。明确不限工作经验时填 0。</p><form id="job-draft-form"><section class="draft-job"><label class="caption"><input type="checkbox" data-skip-draft> 跳过此条</label><fieldset><div class="form-grid">${jobFields(data)}</div>${jobEvidence(data.evidence || [])}</fieldset></section></form>`, '<button form="job-draft-form" type="submit">确认入库</button>');
-  } else if (kind === 'knowledge_result') {
-    state.modal = {kind, runId: run.id, batch: state.runBatches.get(run.id)};
-    openDialog('核对题库处理结果', hint + (data.questions || []).map(q => `<section class="detail-section"><h3>${esc(q.question)}</h3><p class="prose">${esc(q.answer)}</p><small>${esc(q.locator || '')}</small></section>`).join(''), button('确认保存题目', 'save-questions'));
+
   }
   updateControls();
 }
@@ -616,13 +606,6 @@ async function editJob(id) {
   const item = await api('/jobs/' + encodeURIComponent(id));
   state.modal = {kind: 'job', item};
   openDialog('编辑岗位', `<form id="job-form"><div class="tip">请填写完整的岗位信息。提取依据仅供核对。</div><div class="form-grid">${jobFields(item.data)}</div>${jobEvidence(item.data.evidence || [])}</form>`, '<button type="submit" form="job-form">保存岗位</button>');
-}
-async function editQuestion(id) {
-  const response = await api('/knowledge/questions?limit=500');
-  const item = response.items.find(x => x.id === id);
-  if (!item) throw new Error('题目不存在，请刷新。');
-  state.modal = {kind: 'question', item};
-  openDialog('编辑题目', `<form id="question-form"><div class="form-grid">${field('题目', 'question', item.data.question, {area: true, full: true, required: true, maxLength: 10000})}${field('参考答案', 'answer', item.data.answer, {area: true, full: true, rows: 5, maxLength: 30000})}${field('知识点', 'tags', (item.data.tags || []).join('，'), {full: true})}${field('来源位置 / 说明', 'locator', item.data.locator, {full: true, maxLength: 500})}</div></form>`, '<button form="question-form" type="submit">保存题目</button>');
 }
 async function editMemory(id = null) {
   const response = id ? await api('/memories') : null;
@@ -636,7 +619,7 @@ function chooseFiles(kind) {
   if (occupied()) throw new Error('请先结束当前活动。');
   state.uploadKind = kind;
   const picker = $('#file-picker');
-  picker.accept = {resume: '.pdf,.docx', image: '.png,.jpg,.jpeg,.webp', knowledge: '.md'}[kind];
+  picker.accept = {resume: '.pdf,.docx', image: '.png,.jpg,.jpeg,.webp'}[kind];
   picker.multiple = kind !== 'resume';
   picker.value = '';
   picker.click();
@@ -660,7 +643,7 @@ async function nextFile(batch) {
     const document = await api('/documents', {method: 'POST', body});
     if (batch.cancelled) return;
     await render();
-    const action = {resume: 'parse_resume', image: 'extract_jobs', knowledge: 'index_knowledge'}[batch.kind];
+    const action = {resume: 'parse_resume', image: 'extract_jobs'}[batch.kind];
     await begin(action, {document_id: document.id}, batch);
   } catch (error) {
     cancelBatch(batch);
@@ -705,22 +688,6 @@ async function saveJobDraft(form) {
     batch.saving = false;
     form.inert = false;
   }
-}
-async function saveQuestions() {
-  const operation = state.modal;
-  if (operation?.saving) return;
-  operation.saving = true;
-  try {
-    await api('/runs/' + encodeURIComponent(operation.runId) + '/confirm-questions', {method: 'POST'});
-    if (state.modal !== operation || operation.batch?.cancelled) return;
-    closeDialog();
-    await render();
-    toast('题目已确认保存。');
-    await nextFile(operation.batch);
-  } catch (error) {
-    if (error.status === 413) { cancelBatch(operation.batch); closeDialog(); }
-    throw error;
-  } finally { operation.saving = false; }
 }
 function validateCandidate(form) {
   const data = formData(form);
@@ -824,12 +791,11 @@ const actions = {
     toast('已删除本次评估。');
   },
   'delete-document': async element => {
-    if (!confirm('移除这份资料和关联题目元数据？历史报告仍会保留。')) return;
+    if (!confirm('移除这份资料？历史报告仍会保留。')) return;
     await api('/documents/' + encodeURIComponent(element.dataset.id), {method: 'DELETE'});
     await render();
   },
   'parse-resume': element => begin('parse_resume', {document_id: element.dataset.id}),
-  'index-knowledge': element => begin('index_knowledge', {document_id: element.dataset.id}),
   'sample-profile': () => begin('parse_resume'),
   'use-profile-draft': async () => {
     if (state.drafts.candidate && !confirm('用这份待确认草稿替换当前未保存的画像与条件？')) return;
@@ -850,7 +816,6 @@ const actions = {
     await go('resume');
   },
   'review-result': element => reviewResult(state.runs.get(element.dataset.id)),
-  'save-questions': saveQuestions,
   'paste-jd': () => {
     state.modal = {kind: 'paste'};
     openDialog('粘贴招聘原文', `<form id="paste-form">${field('招聘原文', 'text', '', {area: true, required: true, rows: 9, maxLength: 50000})}</form>`, '<button form="paste-form" type="submit">提取岗位</button>');
@@ -858,12 +823,6 @@ const actions = {
   'evaluate-job': element => begin('evaluate', {job_ids: [element.dataset.id]}, null, element.dataset.id),
   'interview-job': element => begin('interview', {job_id: element.dataset.id}, null, element.dataset.id),
   'run-decision': element => respond(element.dataset.id, element.dataset.decision),
-  'edit-question': element => editQuestion(element.dataset.id),
-  'delete-question': async element => {
-    if (!confirm('移除这道题？')) return;
-    await api('/knowledge/questions/' + encodeURIComponent(element.dataset.id), {method: 'DELETE'});
-    await render();
-  },
   'add-memory': () => editMemory(),
   'edit-memory': element => editMemory(element.dataset.id),
   'delete-memory': async element => {
@@ -912,14 +871,6 @@ document.addEventListener('submit', async event => {
       closeDialog();
       await go('jobs', {job: result.id});
       toast('岗位已确认保存。');
-    } else if (form.id === 'question-form') {
-      const item = state.modal.item;
-      data.tags = splitWords(data.tags);
-      data.document_id = item.data.document_id || null;
-      await api('/knowledge/questions/' + encodeURIComponent(item.id), {method: 'PUT', body: data});
-      closeDialog();
-      await render();
-      toast('题目已保存。');
     } else if (form.id === 'memory-form') {
       const item = state.modal.item;
       await api('/memories' + (item.id ? '/' + encodeURIComponent(item.id) : ''), {method: item.id ? 'PUT' : 'POST', body: data});

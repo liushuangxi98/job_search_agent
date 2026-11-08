@@ -28,7 +28,7 @@ class DocumentRepository:
 
     def list(self, kind=None):
         """按创建时间从新到旧返回元数据记录列表，无记录时返回空列表。
-        kind 筛选 image（图片）、resume（简历）或 knowledge（题库），None 或空字符串表示全部。
+        kind 筛选 image（图片）或 resume（简历），None 或空字符串表示全部。
         """
         query = select(Document).order_by(Document.created_at.desc())
         if kind:
@@ -37,6 +37,6 @@ class DocumentRepository:
 
     def delete(self, row: Document):
         """将当前会话中的资料记录 row 标记删除，返回 None，后续 flush 才执行删除。
-        数据库按外键规则连带删除岗位来源关联和题目；岗位、记忆和本地文件不在此删除。
+        数据库按外键规则连带删除岗位来源关联；岗位、记忆和本地文件不在此删除。
         """
         self.session.delete(row)

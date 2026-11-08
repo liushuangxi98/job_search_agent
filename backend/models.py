@@ -58,13 +58,6 @@ class JobSource(Base):
     document_id: Mapped[str] = mapped_column(ForeignKey('documents.id', ondelete='CASCADE'), primary_key=True)
 
 
-class Question(Record, Base):
-    # document_id 为 None 表示没有资料来源；删除来源会级联删除相关题目行。
-    __tablename__ = 'questions'
-    document_id: Mapped[str | None] = mapped_column(ForeignKey('documents.id', ondelete='CASCADE'), nullable=True)
-    data: Mapped[dict] = mapped_column(JSON)
-
-
 class Memory(Record, Base):
     __tablename__ = 'memories'
     data: Mapped[dict] = mapped_column(JSON)

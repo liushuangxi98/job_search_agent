@@ -16,14 +16,14 @@ from workbench_fixtures import complete_profile
 def run(key, action='parse_resume', session='tab-a'):
     inputs = {
         'chat': {'text': '继续讨论'}, 'parse_resume': {'document_id': 'resume-1'},
-        'extract_jobs': {'document_id': 'image-1'}, 'index_knowledge': {'document_id': 'knowledge-1'},
+        'extract_jobs': {'document_id': 'image-1'},
         'evaluate': {'job_ids': ['job-1']}, 'interview': {'job_id': 'job-1'},
     }
     return Run(key, action, inputs[action], {'session_id': session}, {}, False)
 
 
 @pytest.mark.parametrize('action', [
-    'chat', 'parse_resume', 'extract_jobs', 'index_knowledge', 'evaluate', 'interview',
+    'chat', 'parse_resume', 'extract_jobs', 'evaluate', 'interview',
 ])
 def test_each_action_gets_its_history_and_keeps_it_between_runs(tmp_path, action):
     captured = []

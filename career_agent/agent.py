@@ -40,12 +40,6 @@ async def handle(command: AgentCommand, services: ApplicationServices, emit) -> 
 #   Agent 从 command.human_input["text"] 读取招聘原文。
 #   返回：job_drafts，供用户编辑后入库。
 #
-# index_knowledge：题库导入与索引
-#   场景：用户导入本地 MD 题库。
-#   输入：input.document_id 引用 knowledge 资料。
-#   返回：knowledge_result，展示处理摘要。
-#   业务约定：Agent 返回题目草稿；用户确认后由应用保存，向量索引另行处理。
-#
 # evaluate：岗位评估
 #   场景：用户在岗位行评估匹配度与通勤；发起前须确认完整个人资料和岗位信息盲区。
 #   输入：input.job_ids 只传当前一个岗位的 ID。
@@ -75,7 +69,7 @@ async def handle(command: AgentCommand, services: ApplicationServices, emit) -> 
 #
 # 通用规则：
 #   kind 决定 data 的校验模型，字段细节见上方对应模型。
-#   7 种 data 均可省略 notice（默认 ""），并允许附加展示字段。
+#   报告和聊天结果支持附加展示字段。
 #   下面的最小示例只保证结构合法，不代表业务任务已充分完成。
 #
 # profile_draft：简历解析后的画像草稿
@@ -86,11 +80,6 @@ async def handle(command: AgentCommand, services: ApplicationServices, emit) -> 
 # job_drafts：待导入的岗位草稿
 #   data 直接是一个 JobData 字典；等待用户预览保存。
 #   示例：{"title": "Agent 开发工程师"}。
-#
-# knowledge_result：题库导入或索引摘要
-#   必填：无；questions、coverage 默认 []。
-#   保存：题目元数据由应用确认导入，向量索引另行写入。
-#   示例：{}。
 #
 # evaluation_report：岗位评估报告
 #   必填：jobs；每项通过 job_id 关联本次快照。
@@ -121,6 +110,6 @@ async def handle(command: AgentCommand, services: ApplicationServices, emit) -> 
 #
 # RESULT_SCHEMAS = {
 #     'profile_draft': ProfileData, 'job_drafts': JobData,
-#     'knowledge_result': KnowledgeResultData, 'evaluation_report': EvaluationReportData,
+#     'evaluation_report': EvaluationReportData,
 #     'interview_question': InterviewQuestionData, 'interview_report': InterviewReportData, 'chat': ChatData,
 # }

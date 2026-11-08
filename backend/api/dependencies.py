@@ -6,7 +6,7 @@ from fastapi import Depends, Request
 from ..services.candidate_service import CandidateService
 from ..services.document_service import DocumentService
 from ..services.job_service import JobService
-from ..services.knowledge_service import KnowledgeService
+from ..services.memory_service import MemoryService
 from ..services.report_service import ReportService
 from ..services.run_service import RunService
 from ..services.system_service import SystemService
@@ -30,9 +30,9 @@ def get_job_service(request: Request) -> JobService:
     return request.app.state.job_service
 
 
-def get_knowledge_service(request: Request) -> KnowledgeService:
-    """返回应用共享的题库与记忆服务。"""
-    return request.app.state.knowledge_service
+def get_memory_service(request: Request) -> MemoryService:
+    """返回应用共享的记忆服务。"""
+    return request.app.state.memory_service
 
 
 def get_report_service(request: Request) -> ReportService:
@@ -55,7 +55,7 @@ def get_system_service(request: Request) -> SystemService:
 CandidateServiceDep = Annotated[CandidateService, Depends(get_candidate_service)]
 DocumentServiceDep = Annotated[DocumentService, Depends(get_document_service)]
 JobServiceDep = Annotated[JobService, Depends(get_job_service)]
-KnowledgeServiceDep = Annotated[KnowledgeService, Depends(get_knowledge_service)]
+MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 ReportServiceDep = Annotated[ReportService, Depends(get_report_service)]
 RunServiceDep = Annotated[RunService, Depends(get_run_service)]
 SystemServiceDep = Annotated[SystemService, Depends(get_system_service)]

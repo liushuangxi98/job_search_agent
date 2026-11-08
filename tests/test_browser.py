@@ -1,4 +1,4 @@
-"""三入口工作台 DOM 回归：随机端口、隔离数据库、固定 demo，无真实模型。"""
+"""求职工作台 DOM 回归：随机端口、隔离数据库、固定 demo，无真实模型。"""
 import asyncio
 import base64
 from copy import deepcopy
@@ -170,7 +170,7 @@ def import_images(page, files):
 
 
 @pytest.mark.parametrize('has_jobs', [False, True], ids=['empty', 'with-jobs'])
-def test_default_home_has_only_three_entries(browser_env, has_jobs):
+def test_default_home_has_only_resume_and_jobs(browser_env, has_jobs):
     env, page = browser_env, browser_env['page']
     if has_jobs:
         seed_jobs(env)
@@ -182,7 +182,7 @@ def test_default_home_has_only_three_entries(browser_env, has_jobs):
     if not has_jobs:
         expect(page.locator('.job-list')).to_contain_text('还没有导入岗位')
         expect(page.locator('.job-list')).to_contain_text('通过上方的“导入截图”或“粘贴招聘原文”开始。')
-    assert page.locator('nav [data-page]').evaluate_all('(nodes) => nodes.map(n => n.dataset.page)') == ['resume', 'knowledge', 'jobs']
+    assert page.locator('nav a').evaluate_all('(nodes) => nodes.map(n => n.dataset.page)') == ['resume', 'jobs']
     expect(page.locator('#evaluate-selection')).to_have_count(0)
     assert '总分' not in page.locator('#view').inner_text()
 
@@ -719,50 +719,21 @@ def test_upload_413_stops_batch_without_retry(browser_env, tmp_path):
     assert env['repo'].jobs()['total'] == 0
 
 
-def test_knowledge_import_then_edit_and_delete(browser_env, tmp_path):
+def test_old_knowledge_bookmark_returns_to_jobs(browser_env):
     env, page = browser_env, browser_env['page']
-    runs = []
-
-    async def parse_knowledge(command, services, emit):
-        assert command.action == 'index_knowledge'
-        runs.append(command.run_id)
-        return AgentResponse(kind='knowledge_result', data={'questions': [
-            {'question': '什么是工具调用？', 'document_id': command.input['document_id']},
-            {'question': '如何检索文档？', 'document_id': command.input['document_id']},
-        ]})
-
-    env['app'].state.run_service.handler = parse_knowledge
-    source = tmp_path / '题库验收.md'
-    source.write_text('# 测试题\n什么是工具调用？\n如何检索文档？', encoding='utf-8')
-    visit(env, 'knowledge')
-    expect(page.get_by_role('button', name=re.compile('手动添加题目'))).to_have_count(0)
-    with page.expect_file_chooser() as chooser:
-        page.get_by_role('button', name='选择文件', exact=True).click()
-    chooser.value.set_files(str(source))
-    expect(page.locator('#editor')).to_contain_text('核对题库处理结果')
-    assert env['repo'].records('questions')['total'] == 0
-    run_id, = runs
-    confirm_url = f'/api/runs/{run_id}/confirm-questions'
-    with page.expect_request(lambda request: request.url.endswith(confirm_url)) as confirmation:
-        page.get_by_role('button', name='确认保存题目', exact=True).click()
-    assert confirmation.value.post_data is None
-    expect(page.locator('#editor')).not_to_be_visible()
-    expect(page.locator('#view')).to_contain_text('题库验收.md')
-    expect(page.locator('.question-item')).to_have_count(2)
-    question = page.locator('.question-item', has_text='什么是工具调用？')
-    edit = question.locator('[data-action=edit-question]')
-    question_url = '/api/knowledge/questions/' + edit.get_attribute('data-id')
-    edit.click()
-    page.locator('#question-form [name=question]').fill('更新后的测试题')
-    page.get_by_role('button', name='保存题目', exact=True).click()
-    expect(page.locator('#view')).to_contain_text('更新后的测试题')
-    page.once('dialog', lambda dialog: dialog.accept())
-    page.locator('.question-item', has_text='更新后的测试题').locator('[data-action=delete-question]').click()
-    expect(page.locator('.question-item')).to_have_count(1)
-    expect(page.locator('.question-item')).to_contain_text('如何检索文档？')
-    writes = [(method, path) for method, path in env['requests']
-              if method != 'GET' and (path.startswith('/api/knowledge/questions') or path.endswith('/confirm-questions'))]
-    assert writes == [('POST', confirm_url), ('PUT', question_url), ('DELETE', question_url)]
+    job, _ = seed_jobs(env)
+    external_requests = []
+    def catch_external(route):
+        external_requests.append(route.request.url)
+        route.fulfill(body='unexpected redirect')
+    page.context.route('http://127.0.0.1:8200/**', catch_external)
+    page.goto(env['url'] + '/#/knowledge')
+    expect(page).to_have_url(env['url'] + '/#/jobs')
+    expect(page.locator('#page-title')).to_have_text('岗位池')
+    expect(page.get_by_role('link', name='面试题库')).to_have_count(0)
+    assert not external_requests
+    row(page, job).get_by_role('button', name='模拟面试', exact=True).click()
+    expect(row(page, job)).to_contain_text('第 1 / 最多 8 轮')
 
 
 def test_answer_is_sent_once_and_waiting_run_stops_polling(browser_env):
@@ -787,8 +758,8 @@ def test_page_back_preserves_answer_and_job_editor(browser_env):
     visit(env)
     row(page, a).get_by_role('button', name='模拟面试', exact=True).click()
     row(page, a).get_by_role('textbox', name='面试回答').fill('离开页面前的思路')
-    page.locator('nav [data-page=knowledge]').click()
-    expect(page.locator('#page-title')).to_have_text('面试题库')
+    page.locator('nav [data-page=resume]').click()
+    expect(page.locator('#page-title')).to_have_text('简历画像')
     page.go_back()
     expect(row(page, a).get_by_role('textbox', name='面试回答')).to_have_value('离开页面前的思路')
     open_job_details(row(page, a))
@@ -967,7 +938,7 @@ def test_desktop_and_narrow_layout_have_no_horizontal_overflow(browser_env):
     seed_jobs(env)
     for width in (1440, 1024, 390):
         page.set_viewport_size({'width': width, 'height': 1000})
-        for destination in ('jobs', 'resume', 'knowledge'):
+        for destination in ('jobs', 'resume'):
             visit(env, destination)
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (width, destination)
 

@@ -44,12 +44,12 @@ def test_job_sources_unknown_id_rolls_back_and_search_works(client):
 
 
 def test_document_upload_read_delete_and_path_validation(client, settings):
-    upload = client.post('/api/documents', data={'kind': 'knowledge'},
-                         files={'file': ('../../题库.md', '# 题目\n什么是 RAG？'.encode(), 'text/markdown')})
+    upload = client.post('/api/documents', data={'kind': 'resume'},
+                         files={'file': ('../../简历.pdf', b'%PDF-1.4', 'application/pdf')})
     assert upload.status_code == 201
     item = upload.json()
     assert '/' not in item['filename']
-    assert client.get(f"/api/documents/{item['id']}/content").content.startswith('# 题目'.encode())
+    assert client.get(f"/api/documents/{item['id']}/content").content.startswith(b'%PDF-1.4')
     assert client.get('/api/documents/not-real/content').status_code == 404
     assert client.delete('/api/documents/' + item['id']).status_code == 204
     assert client.get(f"/api/documents/{item['id']}/content").status_code == 404
@@ -67,38 +67,15 @@ def test_bad_file_and_over_limit_upload_leave_no_files(client, settings):
     assert not list((settings.data_dir / 'uploads').iterdir())
 
 
-def test_questions_created_only_from_confirmed_import(client, monkeypatch):
-    from backend.contracts import AgentResponse
-    from test_runs_api import start
+def test_workbench_has_no_question_management(client):
+    from sqlalchemy import inspect
 
-    url = '/api/knowledge/questions'
-    assert client.post(url, json={'question': '手工创建'}).status_code == 405
-    doc = client.post('/api/documents', data={'kind': 'knowledge'}, files={'file': ('测试.md', b'# test')}).json()
-    async def handle(command, services, emit):
-        return AgentResponse(kind='knowledge_result', data={'questions': [{'question': '召回'}, {'question': '重排'}]})
-    monkeypatch.setattr(client.app.state.run_service, 'handler', handle)
-    wrong_run = start(client, 'chat', text='测试')
-    assert client.post(f"/api/runs/{wrong_run['id']}/confirm-questions").status_code == 409
-    run = start(client, 'index_knowledge', document_id=doc['id'])
-    assert client.get(url).json()['total'] == 0
-    confirm = f"/api/runs/{run['id']}/confirm-questions"
-    # 模拟第二道题写入失败；第一道须回滚，同一次确认随后可以重试。
-    from backend.repositories.knowledge_repository import KnowledgeRepository
-    from sqlalchemy.exc import SQLAlchemyError
-    save = KnowledgeRepository.save
-    def fail_second(repository, kind, data, row=None):
-        if data['question'] == '重排':
-            raise SQLAlchemyError('test')
-        return save(repository, kind, data, row)
-    with monkeypatch.context() as failure:
-        failure.setattr(KnowledgeRepository, 'save', fail_second)
-        assert client.post(confirm).status_code == 503
-    assert client.get(url).json()['total'] == 0
-    assert client.post(confirm).status_code == 204
-    assert client.post(confirm).status_code == 204
-    questions = client.get(url).json()['items']
-    assert sorted(q['data']['question'] for q in questions) == ['召回', '重排']
-    assert all(q['data']['document_id'] == doc['id'] for q in questions)
+    assert '/api/knowledge/questions' not in client.get('/openapi.json').json()['paths']
+    assert client.post('/api/runs/no-run/confirm-questions').status_code == 404
+    assert client.post('/api/runs', json={'action': 'index_knowledge'}).status_code == 422
+    upload = client.post('/api/documents', data={'kind': 'knowledge'}, files={'file': ('题库.md', b'# test')})
+    assert upload.status_code == 422 and client.get('/api/documents').json()['total'] == 0
+    assert 'questions' not in inspect(client.app.state.database.engine).get_table_names()
 
 
 def test_memory_crud(client):

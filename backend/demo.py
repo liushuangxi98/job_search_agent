@@ -71,11 +71,6 @@ async def handle(command, services, emit):
         if scenario == 'partial':
             job['address'] = ''
         return AgentResponse(kind='job_drafts', data=job)
-    if command.action == 'index_knowledge':
-        return AgentResponse(kind='knowledge_result', data={'questions': [
-            {'question': QUESTIONS[0], 'answer': '固定演示答案：工具调用由程序执行并返回观察结果。',
-             'tags': ['工具调用'], 'document_id': None, 'locator': '固定演示题，不是上传 MD 的解析结果'}
-        ], 'coverage': ['工具调用（演示）'], 'notice': NOTICE + ' 尚未创建向量索引。'})
     if command.action == 'evaluate':
         job, = command.snapshot['jobs']
         data = job['data']

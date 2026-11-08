@@ -238,7 +238,7 @@ def test_invalid_decision_does_not_pollute_existing_history(service, model_stub,
 
 def test_unimplemented_action_returns_valid_failure():
     value = command()
-    value.action = 'index_knowledge'
+    value.action = 'interview'
     result = asyncio.run(agent.handle(value, None, emit))
     assert result.status == 'failed'
     validate_result(result.kind, result.data)

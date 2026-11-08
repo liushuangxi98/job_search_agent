@@ -15,7 +15,7 @@ from .services.agent_data_service import AgentDataService
 from .services.candidate_service import CandidateService
 from .services.document_service import DocumentService
 from .services.job_service import JobService
-from .services.knowledge_service import KnowledgeService
+from .services.memory_service import MemoryService
 from .services.report_service import ReportService
 from .services.run_service import RunService
 from .services.system_service import SystemService
@@ -32,9 +32,9 @@ def create_app(settings: Settings | None = None, handler=None) -> FastAPI:
     candidates = CandidateService(database.session_factory)
     documents = DocumentService(settings.data_dir, database.session_factory)
     jobs = JobService(database.session_factory)
-    knowledge = KnowledgeService(database.session_factory)
+    memories = MemoryService(database.session_factory)
     reports = ReportService(database.session_factory)
-    agent_data = AgentDataService(candidates, documents, jobs, knowledge, reports)
+    agent_data = AgentDataService(candidates, documents, jobs, memories, reports)
     handler = handler if handler is not None else load_handler(settings.agent_mode)
     runs = RunService(settings, agent_data, documents, handler)
 
@@ -58,7 +58,7 @@ def create_app(settings: Settings | None = None, handler=None) -> FastAPI:
     app.state.candidate_service = candidates
     app.state.document_service = documents
     app.state.job_service = jobs
-    app.state.knowledge_service = knowledge
+    app.state.memory_service = memories
     app.state.report_service = reports
     app.state.agent_data_service = agent_data
     app.state.run_service = runs

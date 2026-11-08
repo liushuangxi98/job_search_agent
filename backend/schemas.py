@@ -174,21 +174,6 @@ class JobUpdate(Payload):
     data: JobData = Field(title='岗位内容', description='待保存的完整岗位资料及来源；提交后整体替换该岗位内容。')
 
 
-class QuestionData(Payload):
-    """题目元数据；document_id 可为空，locator 记录来源位置，不代表已经建立向量索引。"""
-    # 来源 MD 等资料的 ID；可省略，默认 None，无长度/格式约束；示例："knowledge_001"。
-    # None 表示没有关联资料；非空 ID 的存在性由保存服务检查，不是这里的字段校验。
-    document_id: str | None = Field(title='来源文档ID', default=None, description='题目来源的已上传 MD 文件 ID；无关联资料时为 null，不得编造文件 ID。')
-    # 题干；必填，去首尾空白后长度 1—10000 字符；示例："如何评估 RAG 的召回效果？"。
-    question: str = Field(title='题干', min_length=1, max_length=10000, description='题目完整题干，必须有实际内容。')
-    # 参考答案；可省略，默认 ""，最多 30000 字符；示例："准备标注题集并计算 Recall@K。"。
-    answer: str = Field(title='参考答案', default='', max_length=30000, description='题库中的参考答案；原文没有答案时留空，不把模型生成的答案冒充原文。')
-    # 知识点标签；可省略，默认 []，最多 30 个字符串，单项未设长度上限；示例：["RAG", "评测"]。
-    tags: list[str] = Field(title='知识点标签', default_factory=list, max_length=30, description='题目涉及的知识点标签列表，例如 RAG、工具调用；未标注时为 []。')
-    # 资料内的原文定位，不是独立的资料 ID；可省略，默认 ""，最多 500 字符；示例："第 3 节/题 12"。
-    locator: str = Field(title='原文位置', default='', max_length=500, description='题目在来源文件中的位置，例如章节标题、题号或段落；未知时留空。')
-
-
 class MemoryData(Payload):
     """已确认记忆的普通存取格式；本模型不推断内容，也不执行用户确认流程。"""
     # 要保存的记忆事实；必填，去首尾空白后长度 1—10000 字符；示例："用户优先考虑杭州岗位。"。

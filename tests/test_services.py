@@ -54,28 +54,13 @@ def test_failed_document_metadata_write_removes_new_file(client, settings, monke
         raise SQLAlchemyError('simulated database write failure')
 
     monkeypatch.setattr('backend.repositories.document_repository.DocumentRepository.add', database_failure)
-    upload = UploadFile(BytesIO('# 测试题库'.encode()), filename='questions.md')
+    upload = UploadFile(BytesIO(b'%PDF-1.4'), filename='resume.pdf')
     with pytest.raises(SQLAlchemyError):
-        asyncio.run(service.save(upload, 'knowledge'))
+        asyncio.run(service.save(upload, 'resume'))
 
     assert service.list()['total'] == 0
     assert list((settings.data_dir / 'uploads').iterdir()) == []
     assert upload.file.closed
-
-
-def test_service_failed_question_update_preserves_original_record(client):
-    service = client.app.state.knowledge_service
-    with pytest.raises(AppError, match='题库导入'):
-        service.save('questions', {'question': '手工创建'})
-    source = client.post('/api/documents', data={'kind': 'knowledge'}, files={'file': ('测试.md', b'# test')}).json()
-    service.import_questions(source['id'], [{'question': '什么是 RAG？'}])
-    saved, = service.list('questions')['items']
-    before = service.list('questions')
-
-    with pytest.raises(AppError):
-        service.save('questions', {'question': '不应保存', 'document_id': 'missing'}, saved['id'])
-
-    assert service.list('questions') == before
 
 
 def test_database_initialization_preserves_existing_data(client, settings):

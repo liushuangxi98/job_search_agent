@@ -29,8 +29,8 @@ def test_mixed_images_and_non_image_sources_are_rejected_before_writing(client):
     a, b = upload_image(client, 'A.png'), upload_image(client, 'B.png')
     mixed = [{'document_id': a}, {'document_id': b}]
     assert client.post('/api/jobs', json=complete_job(evidence=mixed)).status_code == 422
-    md = client.post('/api/documents', data={'kind': 'knowledge'}, files={'file': ('题库.md', b'# test')}).json()
-    assert client.post('/api/jobs', json=complete_job(evidence=[{'document_id': md['id']}])).status_code == 422
+    resume = client.post('/api/documents', data={'kind': 'resume'}, files={'file': ('简历.pdf', b'%PDF-1.4')}).json()
+    assert client.post('/api/jobs', json=complete_job(evidence=[{'document_id': resume['id']}])).status_code == 422
     assert client.get('/api/jobs').json()['total'] == 0
 
 

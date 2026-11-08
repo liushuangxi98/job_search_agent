@@ -11,13 +11,6 @@ from test_runs_api import ready_profile, start
 from workbench_fixtures import complete_job, upload_image
 
 
-def upload_md(client, name):
-    result = client.post('/api/documents', data={'kind': 'knowledge'},
-                         files={'file': (name, ('# ' + name).encode(), 'text/markdown')})
-    assert result.status_code == 201
-    return result.json()['id']
-
-
 def test_new_evidence_on_same_image_invalidates_old_job_edit(client):
     source = upload_image(client)
     data = complete_job(evidence=[{'document_id': source, 'text': '第一段'}])

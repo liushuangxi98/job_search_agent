@@ -5,19 +5,19 @@
 from .candidate_service import CandidateService
 from .document_service import DocumentService
 from .job_service import JobService
-from .knowledge_service import KnowledgeService
+from .memory_service import MemoryService
 from .report_service import ReportService
 
 
 class AgentDataService:
     """保持 services.repository 的调用约定；校验、事务和异常仍由对应业务服务负责。"""
     def __init__(self, candidates: CandidateService, documents: DocumentService,
-                 jobs: JobService, knowledge: KnowledgeService, reports: ReportService):
+                 jobs: JobService, memories: MemoryService, reports: ReportService):
         """复用已装配的业务服务，不创建数据库 Session 或执行资料读写。"""
         self.candidates = candidates
         self.document_service = documents
         self.job_service = jobs
-        self.knowledge = knowledge
+        self.record_services = {'memories': memories}
         self.report_service = reports
 
     def candidate(self):
@@ -61,16 +61,16 @@ class AgentDataService:
         return self.document_service.delete_metadata(key)
 
     def records(self, kind, q='', offset=0, limit=100):
-        """返回 questions 或 memories 的 items/total；分页按条数，空列表表示无匹配。"""
-        return self.knowledge.list(kind, q, offset, limit)
+        """返回 memories 的 items/total；分页按条数，空列表表示无匹配。"""
+        return self.record_services[kind].list(q, offset, limit)
 
     def save_record(self, kind, data, key=None):
-        """更新题目或保存记忆；仅记忆允许省略 key 新增。"""
-        return self.knowledge.save(kind, data, key)
+        """保存已确认记忆；省略 key 时新增。"""
+        return self.record_services[kind].save(data, key)
 
     def delete_record(self, kind, key):
-        """删除题目或记忆记录，成功无返回值；缺失抛 AppError，不负责清理向量索引。"""
-        return self.knowledge.delete(kind, key)
+        """删除已确认记忆；记录缺失抛 AppError。"""
+        return self.record_services[kind].delete(key)
 
     def save_report(self, kind, data, snapshot, run_id, is_demo):
         """按 run_id 保存或读取已有报告；返回报告字典，不替运行服务校验 Agent 输出。"""
