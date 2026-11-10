@@ -20,7 +20,7 @@ def build_chat():
         max_retries=0,
     )
 
-async def ainvoke(messages: list, client: ChatOpenAI|None = None):
+async def custom_ainvoke(messages: list, client: ChatOpenAI|None = None):
     if client is None:
         client = build_chat()
     ret = client.ainvoke(messages)
