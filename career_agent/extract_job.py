@@ -6,6 +6,7 @@
 功能描述:
 """
 import json
+import traceback
 from io import BytesIO
 from pathlib import Path
 
@@ -53,6 +54,8 @@ async def get_job(command, services, emit) -> AgentResponse:
 
     # 检验
     if decision is None:
+        if result.get('parsing_error'):
+            traceback.print_exception(result['parsing_error'])
         return AgentResponse(
             status='failed', kind='chat',
             data={'message': '未能提取有效岗位信息。'}, usage=usage,
@@ -62,6 +65,7 @@ async def get_job(command, services, emit) -> AgentResponse:
     try:
         update = JobData.model_validate(update).model_dump()
     except ValidationError:
+        traceback.print_exc()
         return AgentResponse(
             status='failed', kind='chat', data={'message': '补充内容与岗位字段约束冲突，请核对后重新发起。'}, usage=usage,
         )

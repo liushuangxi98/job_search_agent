@@ -16,4 +16,6 @@ class AgentSettings(BaseSettings):
     llm_api_key: SecretStr = Field(title='模型API密钥', default=SecretStr(''), repr=False)
     llm_base_url: str = Field(title='模型服务地址', default='https://api.deepseek.com', min_length=1)
     amap_api_key: SecretStr = Field(title='高德 Web 服务 Key', default=SecretStr(''), repr=False)
+    # 与独立知识库共享的检索密钥，从本工程 .env 读取。
+    knowledge_api_key: SecretStr = Field(title='知识库检索密钥', default=SecretStr(''), repr=False)
 

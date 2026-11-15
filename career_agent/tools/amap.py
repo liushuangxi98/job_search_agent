@@ -1,4 +1,6 @@
 """高德通勤工具：搜索地点，按用户选定的两个地点查询路线。"""
+import traceback
+
 import httpx
 
 from backend.exceptions import AppError
@@ -17,8 +19,8 @@ async def map_request(path: str, **params) -> dict:
             raise AppError(413, 'AMAP_REQUEST_TOO_LARGE', '高德请求超过大小限制，本次通勤查询已停止。')
         response.raise_for_status()
         result = response.json()
-    except (httpx.HTTPError, ValueError):
-        raise AppError(502, 'AMAP_UNAVAILABLE', '高德服务不可用或返回了无效响应。') from None
+    except (httpx.HTTPError, ValueError) as exc:
+        raise AppError(502, 'AMAP_UNAVAILABLE', '高德服务不可用或返回了无效响应。') from exc
     if result.get('status') != '1':
         raise AppError(502, 'AMAP_ERROR', f"高德查询失败（错误码 {result.get('infocode', '未知')}）。")
     return result
@@ -53,6 +55,8 @@ async def get_route(start_place: dict, end_place: dict, mode: str) -> dict:
     except AppError as exc:
         if exc.status == 413:
             raise
+        # 此处会把错误转成路线提示，先将具体原因打印到控制台。
+        traceback.print_exc()
         return {'duration_minutes': None, 'distance_km': None, 'route_summary': exc.message}
     route = result.get('route', {}).get('transits' if by_bus else 'paths')[0]
 

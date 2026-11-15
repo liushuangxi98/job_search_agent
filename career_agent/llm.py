@@ -13,12 +13,16 @@ def build_chat():
     settings = AgentSettings()
     if not settings.llm_api_key.get_secret_value().strip():
         raise AppError(503, 'MODEL_NOT_CONFIGURED', '请在 .env 中填写 LLM_API_KEY，再重启服务。')
-    return ChatOpenAI(
-        model=settings.llm_model, api_key=settings.llm_api_key,
-        base_url=settings.llm_base_url, timeout=180,
-        # 不隐式重试模型操作，包含 413 在内的失败交由当前运行明确报告。
-        max_retries=0,
-    )
+    try:
+        ret = ChatOpenAI(
+            model=settings.llm_model, api_key=settings.llm_api_key,
+            base_url=settings.llm_base_url, timeout=180,
+            # 不隐式重试模型操作，包含 413 在内的失败交由当前运行明确报告。
+            max_retries=0,
+        )
+    except Exception as e:
+        raise e
+    return ret
 
 async def custom_ainvoke(messages: list, client: ChatOpenAI|None = None):
     if client is None:

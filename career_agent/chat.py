@@ -1,5 +1,6 @@
 """有上下文的聊天、澄清和资料修改提案；资料写入由后端确认流程负责。"""
 import json
+import traceback
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -54,6 +55,8 @@ async def reply(command, emit) -> AgentResponse:
     # 无效决策也可能已计费，随失败结果返回服务商实际上报的用量。
     decision = result['parsed']
     if decision is None:
+        if result.get('parsing_error'):
+            traceback.print_exception(result['parsing_error'])
         return AgentResponse(status='failed', kind='chat', data={'message': '未收到有效的聊天决策。'}, usage=usage)
     return _build_response(decision, usage)
 

@@ -4,6 +4,7 @@ from .chat import reply
 from .parse_resume import get_resume
 from .extract_job import get_job
 from .evaluate import evaluate
+from .interview import interview
 
 
 async def handle(command: AgentCommand, services: ApplicationServices, emit) -> AgentResponse:
@@ -18,6 +19,9 @@ async def handle(command: AgentCommand, services: ApplicationServices, emit) -> 
         return await get_job(command, services, emit)
     elif command.action == 'evaluate':
         return await evaluate(command, emit)
+    # 从这里进入面试。开始、提交回答、提前结束都调用同一个 interview 函数，由它判断接下来做什么。
+    elif command.action == 'interview':
+        return await interview(command, emit)
     return AgentResponse(
         status='failed', kind='chat',
         data={'message': f'动作 {command.action} 尚未实现。'},

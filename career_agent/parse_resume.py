@@ -6,6 +6,7 @@
 功能描述:
 """
 import json
+import traceback
 from io import BytesIO
 from pathlib import Path
 
@@ -46,11 +47,14 @@ async def get_resume(command, file_path, emit) -> AgentResponse:
 
     # 无效决策也可能已计费，随失败结果返回服务商实际上报的用量。
     if decision is None:
+        if result.get('parsing_error'):
+            traceback.print_exception(result['parsing_error'])
         return AgentResponse(status='failed', kind='chat', data={'message': '未收到有效的聊天决策。'}, usage=usage)
     update = {**profile_base, **decision.model_dump(exclude_unset=True)}
     try:
         update = ProfileData.model_validate(update).model_dump()
     except ValidationError:
+        traceback.print_exc()
         return AgentResponse(
             status='failed', kind='chat', data={'message': '补充内容与画像字段约束冲突，请核对后重新发起。'}, usage=usage,
         )
