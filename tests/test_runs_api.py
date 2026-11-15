@@ -1,9 +1,37 @@
 import time
 
+import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from fastapi.exceptions import RequestValidationError
+from sqlalchemy.exc import SQLAlchemyError
 
 from backend.app import create_app
+from backend.api.exception_handlers import register_exception_handlers
+from backend.exceptions import AppError
 from workbench_fixtures import candidate_payload, complete_job
+
+
+@pytest.mark.parametrize(('error', 'status'), [
+    (AppError(422, 'TEST', '测试应用错误'), 422),
+    (SQLAlchemyError('offline database error'), 503),
+    (RequestValidationError([{'loc': ('body', 'name'), 'msg': 'required', 'type': 'missing'}]), 422),
+])
+def test_api_errors_print_full_traceback(error, status, capsys):
+    # 独立应用无需数据库，验证已有错误处理器会打印详情并返回原有状态码。
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get('/failure')
+    def failure():
+        raise error
+
+    with TestClient(app) as client:
+        response = client.get('/failure')
+    assert response.status_code == status
+    output = capsys.readouterr().err
+    assert 'Traceback (most recent call last)' in output and type(error).__name__ in output
+    assert 'Traceback' not in response.text
 
 
 def ready_profile(client):

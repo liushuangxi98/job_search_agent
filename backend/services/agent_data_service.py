@@ -83,3 +83,7 @@ class AgentDataService:
     def reports(self):
         """返回报告 items/total，按创建时间倒序；没有报告时 items 为空列表。"""
         return self.report_service.list()
+
+    # 运行服务从这里取岗位评估，具体怎样查询报告由 report_service 负责。
+    def latest_evaluation(self, job_id):
+        return self.report_service.latest_evaluation(job_id)

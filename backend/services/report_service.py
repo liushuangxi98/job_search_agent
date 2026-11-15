@@ -36,6 +36,14 @@ class ReportService:
             rows = ReportRepository(session).list()
             return {'items': [self.serialize(row) for row in rows], 'total': len(rows)}
 
+    def latest_evaluation(self, job_id):
+        with self.session_factory() as session:
+            data = ReportRepository(session).latest_evaluation(job_id)
+            if data is not None:
+                # row 是报告里这个岗位的评估明细。挑出匹配依据、关键要求和有利经历，交给面试负责人选考点。
+                row = data['jobs'][0]
+                return {key: row[key] for key in ('matches', 'key_requirement', 'supporting_experiences') if key in row}
+
     def delete_evaluation(self, report_id: str):
         """删除选中的一份岗位评估，岗位资料和其他报告各自保留。"""
         with self.session_factory.begin() as session:

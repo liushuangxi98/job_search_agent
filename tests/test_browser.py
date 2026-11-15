@@ -4,6 +4,7 @@ import base64
 from copy import deepcopy
 from dataclasses import dataclass, field
 import json
+from pathlib import Path
 import re
 import socket
 import threading
@@ -22,6 +23,56 @@ from backend.repositories.job_repository import JobRepository
 from backend.schemas import ProfileData
 
 pytestmark = pytest.mark.browser
+
+
+def test_interview_chat_keeps_all_messages():
+    """独立 DOM 检查使用真实渲染函数，无需数据库或模型，也不截图。"""
+    root = Path(__file__).resolve().parents[1]
+    app = (root / 'frontend/app.js').read_text(encoding='utf-8')
+    api = (root / 'frontend/api.js').read_text(encoding='utf-8')
+    code = next(line.replace('export ', '') for line in api.splitlines() if line.startswith('export const esc'))
+    for name in ('button', 'idAttr', 'actionNames'):
+        code += '\n' + next(line for line in app.splitlines() if line.startswith('const ' + name + ' ='))
+    for name in ('interviewChatHTML', 'pendingHTML', 'runHTML', 'traceHTML', 'traceEntries'):
+        start = app.index('function ' + name + '(')
+        code += '\n' + app[start:app.index('\nfunction ', start)]
+
+    messages = [
+        {'role': 'assistant', 'content': '如何测试登录？', 'hint': '考虑输入范围', 'source': '题库原题'},
+        {'role': 'user', 'content': '包括手机端吗？'},
+        {'role': 'assistant', 'content': '只考虑网页端。'},
+        {'role': 'user', 'content': '我先测试空密码。'},
+        {'role': 'assistant', 'content': '空密码时应显示什么？'},
+    ]
+    run = dict(id='run', action='interview', status='needs_input', messages=messages, events=[],
+               result={'data': {'message': messages[-1]['content']}},
+               pending_input={'id': 'input', 'kind': 'question', 'prompt': messages[-1]['content']})
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(channel='msedge', headless=True)
+        try:
+            page = browser.new_page()
+            page.add_script_tag(content=code)
+            render = '(run) => { document.body.innerHTML = runHTML(run); }'
+            page.evaluate(render, run)
+            expect(page.locator('.interview-chat .bubble > .prose')).to_have_text([m['content'] for m in messages])
+            assert not page.locator('.interview-chat details').evaluate('(node) => node.open')
+            expect(page.get_by_role('textbox', name='面试消息')).to_be_visible()
+            expect(page.get_by_role('button', name='发送', exact=True)).to_be_visible()
+            assert '面试官补充说明' not in page.locator('body').inner_text()
+            # 重画相同的运行快照不会增加消息，等待模型时也保留已经发送的内容。
+            page.evaluate(render, run)
+            expect(page.locator('.interview-chat .bubble')).to_have_count(5)
+            run.update(status='running', pending_input=None)
+            run['messages'].append({'role': 'user', 'content': '<img src=x>输入错误提示'})
+            page.evaluate(render, run)
+            expect(page.locator('.interview-chat .bubble')).to_have_count(6)
+            expect(page.locator('.interview-chat img')).to_have_count(0)
+            expect(page.locator('[data-run-answer]')).to_have_count(0)
+            run.update(status='failed', result={'data': {'message': '请求失败'}})
+            page.evaluate(render, run)
+            expect(page.locator('.interview-chat .bubble')).to_have_count(6)
+        finally:
+            browser.close()
 
 
 @dataclass
@@ -525,16 +576,16 @@ def test_interview_reload_and_report_stay_with_the_correct_job(browser_env):
     job.get_by_role('button', name='评估', exact=True).click()
     expect(evaluation.locator('.report')).to_be_visible()
     job.get_by_role('button', name='模拟面试', exact=True).click()
-    expect(interview).to_contain_text('第 1 / 最多 8 轮')
-    interview.get_by_role('textbox', name='面试回答').fill('已经提交的第一轮答案')
-    interview.get_by_role('button', name='提交回答', exact=True).click()
-    expect(interview).to_contain_text('第 2 / 最多 8 轮')
-    interview.get_by_role('textbox', name='面试回答').fill('刷新时应丢弃的草稿')
+    expect(interview.locator('.interview-chat .bubble')).to_have_count(1)
+    interview.get_by_role('textbox', name='面试消息').fill('已经提交的第一轮答案')
+    interview.get_by_role('button', name='发送', exact=True).click()
+    expect(interview.locator('.interview-chat .bubble')).to_have_count(3)
+    interview.get_by_role('textbox', name='面试消息').fill('刷新时应丢弃的草稿')
     page.once('dialog', lambda dialog: dialog.accept())
     page.reload()
-    expect(interview).to_contain_text('第 2 / 最多 8 轮')
-    expect(interview.get_by_role('textbox', name='面试回答')).to_have_value('')
-    interview.get_by_role('button', name='提前结束并生成报告').click()
+    expect(interview.locator('.interview-chat .bubble')).to_have_count(3)
+    expect(interview.get_by_role('textbox', name='面试消息')).to_have_value('')
+    interview.get_by_role('button', name='结束面试并生成报告').click()
     expect(interview.locator('.report')).to_contain_text('已经提交的第一轮答案')
     expect(interview.locator('.interview-dimensions')).to_contain_text('Agent 基础（固定示例）')
     expect(interview.locator('.interview-dimensions')).to_contain_text('75')
@@ -733,7 +784,7 @@ def test_old_knowledge_bookmark_returns_to_jobs(browser_env):
     expect(page.get_by_role('link', name='面试题库')).to_have_count(0)
     assert not external_requests
     row(page, job).get_by_role('button', name='模拟面试', exact=True).click()
-    expect(row(page, job)).to_contain_text('第 1 / 最多 8 轮')
+    expect(row(page, job).locator('.interview-chat .bubble')).to_have_count(1)
 
 
 def test_answer_is_sent_once_and_waiting_run_stops_polling(browser_env):
@@ -741,14 +792,14 @@ def test_answer_is_sent_once_and_waiting_run_stops_polling(browser_env):
     a, b = seed_jobs(env)
     visit(env)
     row(page, a).get_by_role('button', name='模拟面试', exact=True).click()
-    expect(row(page, a)).to_contain_text('第 1 / 最多 8 轮')
+    expect(row(page, a).locator('.interview-chat .bubble')).to_have_count(1)
     expect(row(page, b).get_by_role('button', name='评估', exact=True)).to_be_disabled()
     polls = len([x for x in env['requests'] if x[0] == 'GET' and x[1].startswith('/api/runs/')])
     page.wait_for_timeout(850)
     assert len([x for x in env['requests'] if x[0] == 'GET' and x[1].startswith('/api/runs/')]) == polls
-    row(page, a).get_by_role('textbox', name='面试回答').fill('同一答案只提交一次')
+    row(page, a).get_by_role('textbox', name='面试消息').fill('同一答案只提交一次')
     row(page, a).locator('[data-run-answer]').evaluate('(form) => { form.requestSubmit(); form.requestSubmit(); }')
-    expect(row(page, a)).to_contain_text('第 2 / 最多 8 轮')
+    expect(row(page, a).locator('.interview-chat .bubble')).to_have_count(3)
     assert len([x for x in env['requests'] if x[0] == 'POST' and x[1].endswith('/input')]) == 1
 
 
@@ -757,11 +808,11 @@ def test_page_back_preserves_answer_and_job_editor(browser_env):
     a, _ = seed_jobs(env)
     visit(env)
     row(page, a).get_by_role('button', name='模拟面试', exact=True).click()
-    row(page, a).get_by_role('textbox', name='面试回答').fill('离开页面前的思路')
+    row(page, a).get_by_role('textbox', name='面试消息').fill('离开页面前的思路')
     page.locator('nav [data-page=resume]').click()
     expect(page.locator('#page-title')).to_have_text('简历画像')
     page.go_back()
-    expect(row(page, a).get_by_role('textbox', name='面试回答')).to_have_value('离开页面前的思路')
+    expect(row(page, a).get_by_role('textbox', name='面试消息')).to_have_value('离开页面前的思路')
     open_job_details(row(page, a))
     row(page, a).get_by_role('button', name='编辑岗位').click()
     page.locator('#job-form [name=job_requirement]').fill('未保存的任职要求')
@@ -948,7 +999,7 @@ def test_empty_interview_dimensions_are_not_zero_scores(browser_env):
     a, _ = seed_jobs(env)
     visit(env)
     row(page, a).get_by_role('button', name='模拟面试', exact=True).click()
-    row(page, a).get_by_role('button', name='提前结束并生成报告').click()
+    row(page, a).get_by_role('button', name='结束面试并生成报告').click()
     expect(row(page, a).locator('.interview-dimensions')).to_contain_text('未考察')
 
 

@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from typing import Callable, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 from .schemas import Payload, JobData, ProfileData
 
@@ -269,27 +269,15 @@ class EvaluationReportData(DisplayData):
     jobs: list[ReportJob] = Field(title='岗位评估结果', description='本次选中岗位的逐项评估结果，每项须关联对应的真实岗位 ID。')
 
 
-# 3.8 InterviewQuestionData：当前一轮面试问题
+# 3.8 InterviewQuestionData：面试官本次发送的消息
 class InterviewQuestionData(DisplayData):
-    """当前面试问题；round 只允许 1—8，来源信息随问题展示。
-    总轮数含追问不超过 8 的约定，由 Agent 负责计数和结束。
-    """
+    """主问、追问和交流统一返回消息；原有 question 字段仍可作为输入读取。"""
 
-    # round：当前轮号；必填整数，范围 1—8。
-    #   示例：1。业务上追问也计一轮，由 Agent 累计。
-    round: int = Field(title='面试轮次', ge=1, le=8, description='本场面试当前轮号，范围 1—8；主问题和追问均占一轮。')
-
-    # question：本轮题干；必填字符串，至少 1 字符，无长度上限。
-    #   示例："如何处理工具请求超时？"。
-    question: str = Field(title='本轮题目', min_length=1, description='本轮实际展示给用户的完整面试题或追问题干。')
-
-    # question_id：题目或追问标识；必填字符串，但未禁止空串或校验数据库存在性。
-    #   示例："question_001"。
-    question_id: str = Field(title='题目标识', description='当前题目的 ID；题库题使用检索到的 ID，自拟追问使用可区分的标识，不伪造题库记录。')
-
-    # source：供用户核对的来源说明；必填字符串，但未禁止空串或限制长度。
-    #   示例："agent题库.md#工具超时"。
-    source: str = Field(title='题目来源', description='题目来源及位置；自拟追问须明确标注生成性质，不将推测考点冒充公司真实面经。')
+    message: str = Field(title='面试官消息', min_length=1, validation_alias=AliasChoices('message', 'question'),
+                         description='本次实际展示的题干、追问或交流内容。')
+    hint: str = Field(default='', title='思考提示', description='出题时提供的思考方向，页面默认折叠。')
+    question_id: str = Field(default='', title='题目标识', description='题库原题的 ID；现场追问和交流可留空。')
+    source: str = Field(default='', title='出处', description='出题时可展示的题库出处或现场追问说明。')
 
 
 # 3.9 DimensionData / AnswerData：面试评分维度与问答记录
@@ -444,12 +432,12 @@ class PendingInput(Payload):
 #       {"job_id": "job_001"}
 #     ]}
 #
-# interview_question：当前一轮面试问题
-#   必填：round、question、question_id、source。
+# interview_question：面试官本次消息，包含主问、追问和交流
+#   必填：message；hint、question_id、source 可省略。
 #   等待：配合 status="needs_input" 和问题类型的 pending_input 使用。
 #   示例：
 #     {
-#       "round": 1, "question": "什么是 RAG？",
+#       "message": "什么是 RAG？",
 #       "question_id": "question_001", "source": "rag.md"
 #     }
 #

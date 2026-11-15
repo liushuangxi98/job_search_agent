@@ -1,5 +1,8 @@
 """PyCharm 中直接 Run/Debug 本文件，即可启动前端页面和后端 API。"""
 import uvicorn
+# 提前加载网络库，避开单步调试时才初始化连接状态枚举的问题
+import httpcore
+import httpcore2
 
 from backend.app import create_app
 

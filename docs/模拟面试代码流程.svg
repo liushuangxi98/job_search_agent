@@ -1,0 +1,515 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2944" height="7283" viewBox="0 0 2944 7283" role="img" aria-labelledby="title"><title id="title">模拟面试代码流程及函数输入输出</title><defs><marker id="tip" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7" fill="#64748b"/></marker></defs><rect width="100%" height="100%" fill="white"/><g font-family="Microsoft YaHei,Arial,sans-serif"><text x="40" y="60" font-size="36" fill="#1e40af">模拟面试代码流程</text>
+<text x="40" y="104" font-size="20" fill="#1e3a5f">沿左侧编号阅读；分支末尾的 → 编号表示下一执行位置。紫色调用节点向右展开，连线上方是输入、下方是输出。</text>
+<rect x="40" y="182" width="288" height="85" fill="#dbeafe" stroke="#1e40af"/>
+<text x="50" y="212" font-size="24" fill="#1e40af">01  信息准备</text>
+<text x="50" y="240" font-size="17" fill="#64748b">interview() 每次进入都执行</text>
+<path d="M330 210L408 210" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M408 210L426 210" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="438" y="208" font-size="20" fill="#1e3a5f">读取用户输入</text>
+<text x="438" y="236" font-size="17" fill="#64748b">user = command.human_input；user_reply 初始为 None。</text>
+<path d="M408 311L426 311" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="438" y="309" font-size="20" fill="#1e3a5f">组装公共资料 info</text>
+<text x="438" y="337" font-size="17" fill="#64748b">从 command.snapshot 读取两份资料</text>
+<text x="438" y="361" font-size="17" fill="#64748b">。</text>
+<path d="M783 311L861 311" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M861 311L879 311" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="891" y="309" font-size="20" fill="#1e3a5f">岗位  info.job</text>
+<text x="891" y="337" font-size="17" fill="#64748b">取 jobs[0].data 的 title、job_description、job_requirement</text>
+<text x="891" y="361" font-size="17" fill="#64748b">、experience_years。</text>
+<path d="M861 436L879 436" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="891" y="434" font-size="20" fill="#1e3a5f">简历  info.resume</text>
+<text x="891" y="462" font-size="17" fill="#64748b">取 profile.data 的 projects、experience、skills。</text>
+<path d="M861 311L861 436" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M408 210L408 311" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M60 268L60 531" fill="none" stroke="#1e40af" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="40" y="535" width="288" height="85" fill="#dbeafe" stroke="#1e40af"/>
+<text x="50" y="565" font-size="24" fill="#1e40af">02  计划初始化</text>
+<text x="50" y="593" font-size="17" fill="#64748b">按 user['decision'] 分支</text>
+<path d="M330 563L408 563" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M408 563L426 563" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="428" y="535" width="353" height="105" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="438" y="561" font-size="20" fill="#6d28d9">是 start：make_plan()</text>
+<text x="438" y="589" font-size="17" fill="#64748b">先用 emit('status', …) 通知页面，再</text>
+<text x="438" y="613" font-size="17" fill="#64748b">创建面试计划。</text>
+<path d="M783 563L1139 563" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="790" y="554" font-size="15" fill="#6d28d9">输入  info（岗位和简历）</text>
+<text x="790" y="584" font-size="15" fill="#047857">输出  Plan（考点、原因、下标、历史）</text>
+<path d="M1139 563L1157 563" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="561" font-size="20" fill="#1e3a5f">初始化 history 和 task</text>
+<text x="1169" y="589" font-size="17" fill="#64748b">资料标记 kind='info'；task 带上 TOPIC_LIMITS。</text>
+<path d="M1139 664L1157 664" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="1159" y="636" width="353" height="81" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="1169" y="662" font-size="20" fill="#6d28d9">生成草稿：output_model()</text>
+<text x="1169" y="690" font-size="17" fill="#64748b">为计划绑定结构化输出。</text>
+<path d="M1514 664L1870 664" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="1521" y="655" font-size="15" fill="#6d28d9">输入  TopicPlan</text>
+<text x="1521" y="685" font-size="15" fill="#047857">输出  可生成 TopicPlan 的模型</text>
+<path d="M1870 664L1888 664" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="662" font-size="20" fill="#1e3a5f">build_chat() → with_structured_output()</text>
+<text x="1900" y="690" font-size="17" fill="#64748b">取得聊天模型，绑定 TopicPlan；method='function_calling'，</text>
+<text x="1900" y="714" font-size="17" fill="#64748b">include_raw=True。</text>
+<path d="M1139 789L1157 789" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="1159" y="761" width="353" height="105" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="1169" y="787" font-size="20" fill="#6d28d9">请求草稿：ask_model()</text>
+<text x="1169" y="815" font-size="17" fill="#64748b">每次返回后先取 reply['parsed']。共</text>
+<text x="1169" y="839" font-size="17" fill="#64748b">用处理见 08。</text>
+<path d="M1514 789L1870 789" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="1521" y="761" font-size="15" fill="#6d28d9">输入  模型、history、info、规划提示、</text>
+<text x="1521" y="780" font-size="15" fill="#6d28d9">task</text>
+<text x="1521" y="810" font-size="15" fill="#047857">输出  含 parsed、raw、parsing_error 的</text>
+<text x="1521" y="829" font-size="15" fill="#047857">字典</text>
+<path d="M1870 789L1888 789" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="787" font-size="20" fill="#1e3a5f">解析失败</text>
+<text x="1900" y="815" font-size="17" fill="#64748b">把原始工具请求或正文写进历史，取 parsing_error 作为待修正问题。</text>
+<path d="M1870 890L1888 890" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="888" font-size="20" fill="#1e3a5f">解析成功</text>
+<text x="1900" y="916" font-size="17" fill="#64748b">把 TopicPlan 写进历史，再执行下方的草稿校验。</text>
+<path d="M1870 789L1870 890" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<path d="M1139 991L1157 991" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="1159" y="963" width="353" height="81" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="1169" y="989" font-size="20" fill="#6d28d9">草稿校验：plan_problems()</text>
+<text x="1169" y="1017" font-size="17" fill="#64748b">仅对已解析的 plan.ask_plan 执行。</text>
+<path d="M1514 991L1870 991" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="1521" y="982" font-size="15" fill="#6d28d9">输入  topics = plan.ask_plan</text>
+<text x="1521" y="1012" font-size="15" fill="#047857">输出  problems：问题描述列表</text>
+<path d="M1870 991L1888 991" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="989" font-size="20" fill="#1e3a5f">检查唯一性</text>
+<text x="1900" y="1017" font-size="17" fill="#64748b">分别统计两组值，同一个值出现超过一次</text>
+<text x="1900" y="1041" font-size="17" fill="#64748b">就记录。</text>
+<path d="M2245 991L2323 991" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M2323 991L2341 991" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="2353" y="989" font-size="20" fill="#1e3a5f">考点 ID</text>
+<text x="2353" y="1017" font-size="17" fill="#64748b">从每个 Topic 取 id，用 Counter 统计；重复则写入 ID 和次数。</text>
+<path d="M2323 1092L2341 1092" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="2353" y="1090" font-size="20" fill="#1e3a5f">考点名称</text>
+<text x="2353" y="1118" font-size="17" fill="#64748b">从每个 Topic 取 name，独立统计；重复则写入名称和次数。</text>
+<path d="M2323 991L2323 1092" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M1870 1193L1888 1193" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="1191" font-size="20" fill="#1e3a5f">检查来源配额</text>
+<text x="1900" y="1219" font-size="17" fill="#64748b">按 topic.group 统计，仅在数量超过该</text>
+<text x="1900" y="1243" font-size="17" fill="#64748b">来源上限时记录问题。</text>
+<path d="M2245 1193L2323 1193" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M2323 1193L2341 1193" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="2353" y="1191" font-size="20" fill="#1e3a5f">岗位与简历交集</text>
+<text x="2353" y="1219" font-size="17" fill="#64748b">上限 3 项。</text>
+<path d="M2323 1294L2341 1294" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="2353" y="1292" font-size="20" fill="#1e3a5f">简历经历</text>
+<text x="2353" y="1320" font-size="17" fill="#64748b">上限 1 项。</text>
+<path d="M2323 1395L2341 1395" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="2353" y="1393" font-size="20" fill="#1e3a5f">岗位扩展</text>
+<text x="2353" y="1421" font-size="17" fill="#64748b">上限 1 项。</text>
+<path d="M2323 1193L2323 1395" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M1870 1496L1888 1496" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="1494" font-size="20" fill="#1e3a5f">返回 problems</text>
+<text x="1900" y="1522" font-size="17" fill="#64748b">每一项是一条具体问题。空列表表示这次校验通过。</text>
+<path d="M1870 991L1870 1496" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<path d="M1139 1597L1157 1597" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="1595" font-size="20" fill="#1e3a5f">处理草稿结果</text>
+<text x="1169" y="1623" font-size="17" fill="#64748b">校验通过时立即返回，否则最多修正一次</text>
+<text x="1169" y="1647" font-size="17" fill="#64748b">。</text>
+<path d="M1514 1597L1592 1597" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M1592 1597L1610 1597" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1622" y="1595" font-size="20" fill="#1e3a5f">通过 → 03</text>
+<text x="1622" y="1623" font-size="17" fill="#64748b">用草稿和 history 构建 Plan；topic_index 初始为 0。</text>
+<path d="M1592 1698L1610 1698" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1622" y="1696" font-size="20" fill="#1e3a5f">第一次失败 → 回到生成草稿</text>
+<text x="1622" y="1724" font-size="17" fill="#64748b">传 problems；已解析时再附 last_plan，解析失败的原稿已在 history。</text>
+<path d="M1592 1799L1610 1799" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1622" y="1797" font-size="20" fill="#1e3a5f">第二次仍失败 → 09</text>
+<text x="1622" y="1825" font-size="17" fill="#64748b">抛出 INTERVIEW_PLAN。</text>
+<path d="M1592 1597L1592 1799" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M1139 563L1139 1597" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<path d="M408 1900L426 1900" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="438" y="1898" font-size="20" fill="#1e3a5f">非 start：恢复计划</text>
+<text x="438" y="1926" font-size="17" fill="#64748b">Plan.model_validate(command.state)</text>
+<text x="438" y="1950" font-size="17" fill="#64748b">；把用户原话追加到 plan.history。</text>
+<path d="M783 1900L861 1900" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M861 1900L879 1900" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="881" y="1872" width="353" height="81" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="891" y="1898" font-size="20" fill="#6d28d9">是 finish → make_report()</text>
+<text x="891" y="1926" font-size="17" fill="#64748b">直接进入 07，当前未答题不会当作已答。</text>
+<path d="M1236 1900L1592 1900" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="1243" y="1891" font-size="15" fill="#6d28d9">输入  plan、info</text>
+<text x="1243" y="1921" font-size="15" fill="#047857">输出  AgentResponse（面试报告）</text>
+<path d="M1592 1900L1610 1900" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1622" y="1898" font-size="20" fill="#1e3a5f">转到 07 生成报告</text>
+<text x="1622" y="1926" font-size="17" fill="#64748b">将报告作为本次 interview() 的返回值。</text>
+<path d="M861 2001L879 2001" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="891" y="1999" font-size="20" fill="#1e3a5f">是提交输入 → 03</text>
+<text x="891" y="2027" font-size="17" fill="#64748b">保留刚追加的 user_reply，处理本次作答或澄清。</text>
+<path d="M861 1900L861 2001" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M408 563L408 1900" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M60 621L60 2096" fill="none" stroke="#1e40af" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="40" y="2100" width="288" height="109" fill="#dbeafe" stroke="#1e40af"/>
+<text x="50" y="2130" font-size="24" fill="#1e40af">03  检查考点</text>
+<text x="50" y="2158" font-size="17" fill="#64748b">进入 while 循环前 found =</text>
+<text x="50" y="2182" font-size="17" fill="#64748b">None</text>
+<path d="M330 2128L408 2128" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M408 2128L426 2128" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="438" y="2126" font-size="20" fill="#1e3a5f">还有考点 → 04</text>
+<text x="438" y="2154" font-size="17" fill="#64748b">topic_index &lt; len(ask_plan)。检索后回到此处时保留 found。</text>
+<path d="M408 2229L426 2229" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="438" y="2227" font-size="20" fill="#1e3a5f">下标已到末尾 → 07</text>
+<text x="438" y="2255" font-size="17" fill="#64748b">包含没有考点和最后一个考点已跳过两种情况。</text>
+<path d="M408 2128L408 2229" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M60 2210L60 2324" fill="none" stroke="#1e40af" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="40" y="2328" width="288" height="85" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="50" y="2358" font-size="24" fill="#6d28d9">04  决定下一步</text>
+<text x="50" y="2386" font-size="17" fill="#64748b">调用 decide_next_step()</text>
+<path d="M330 2356L686 2356" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="337" y="2347" font-size="15" fill="#6d28d9">输入  plan、info、user_reply、found</text>
+<text x="337" y="2377" font-size="15" fill="#047857">输出  (action, result)：动作和结果</text>
+<path d="M686 2356L704 2356" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="716" y="2354" font-size="20" fill="#1e3a5f">准备模型任务</text>
+<text x="716" y="2382" font-size="17" fill="#64748b">取本考点，标明是不是最后一个。</text>
+<path d="M1061 2356L1139 2356" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M1139 2356L1157 2356" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="2354" font-size="20" fill="#1e3a5f">正在出主问</text>
+<text x="1169" y="2382" font-size="17" fill="#64748b">user_reply 为 None：采用 INTERVIEW_QUESTION 和</text>
+<text x="1169" y="2406" font-size="17" fill="#64748b">SearchedQuestion。</text>
+<path d="M1139 2481L1157 2481" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="1159" y="2453" width="353" height="130" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="1169" y="2479" font-size="20" fill="#6d28d9">有用户输入：</text>
+<text x="1169" y="2504" font-size="20" fill="#6d28d9">current_question()</text>
+<text x="1169" y="2532" font-size="17" fill="#64748b">采用 INTERVIEW_DECISION 和</text>
+<text x="1169" y="2556" font-size="17" fill="#64748b">DecisionNext。</text>
+<path d="M1514 2481L1870 2481" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="1521" y="2472" font-size="15" fill="#6d28d9">输入  plan.history</text>
+<text x="1521" y="2502" font-size="15" fill="#047857">输出  最近一道题的历史条目</text>
+<path d="M1870 2481L1888 2481" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="2479" font-size="20" fill="#1e3a5f">倒序扫描历史</text>
+<text x="1900" y="2507" font-size="17" fill="#64748b">找到最近一条 kind='question' 的消息，把题干和参考答案放进任务。</text>
+<path d="M1139 2356L1139 2481" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M686 2631L704 2631" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="716" y="2629" font-size="20" fill="#1e3a5f">绑定允许的工具</text>
+<text x="716" y="2657" font-size="17" fill="#64748b">build_chat().bind_tools(...) 根据当</text>
+<text x="716" y="2681" font-size="17" fill="#64748b">前状态设置 tool_choice。</text>
+<path d="M1061 2631L1139 2631" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M1139 2631L1157 2631" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="2629" font-size="20" fill="#1e3a5f">已经查过（含空结果）</text>
+<text x="1169" y="2657" font-size="17" fill="#64748b">found 不是 None：只允许返回当前角色的结构化结果。</text>
+<path d="M1139 2732L1157 2732" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="2730" font-size="20" fill="#1e3a5f">尚未查过，正在出主问</text>
+<text x="1169" y="2758" font-size="17" fill="#64748b">只绑定 search_questions，必须先检索。</text>
+<path d="M1139 2833L1157 2833" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="2831" font-size="20" fill="#1e3a5f">尚未查过，正在处理输入</text>
+<text x="1169" y="2859" font-size="17" fill="#64748b">允许 search_questions 或 DecisionNext，由模型选。</text>
+<path d="M1139 2631L1139 2833" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M686 2934L704 2934" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="706" y="2906" width="353" height="105" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="716" y="2932" font-size="20" fill="#6d28d9">调用 ask_model()</text>
+<text x="716" y="2960" font-size="17" fill="#64748b">通用消息组装见 08；这里使用已绑定工具</text>
+<text x="716" y="2984" font-size="17" fill="#64748b">的模型。</text>
+<path d="M1061 2934L1417 2934" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="1068" y="2906" font-size="15" fill="#6d28d9">输入  模型、plan.history、info、角色提示</text>
+<text x="1068" y="2925" font-size="15" fill="#6d28d9">、任务</text>
+<text x="1068" y="2955" font-size="15" fill="#047857">输出  AIMessage（含 tool_calls）</text>
+<path d="M1417 2934L1435 2934" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1447" y="2932" font-size="20" fill="#1e3a5f">读取 reply.tool_calls</text>
+<text x="1447" y="2960" font-size="17" fill="#64748b">无调用或存在 invalid_tool_calls → INTERVIEW_OUTPUT。</text>
+<path d="M1417 3035L1435 3035" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1447" y="3033" font-size="20" fill="#1e3a5f">全部是已开放的检索调用</text>
+<text x="1447" y="3061" font-size="17" fill="#64748b">每个调用都要有 reason；convert_to_openai_messages(reply) 后</text>
+<text x="1447" y="3085" font-size="17" fill="#64748b">记入历史。返回「需要工具」及 calls。</text>
+<path d="M1417 3160L1435 3160" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1447" y="3158" font-size="20" fill="#1e3a5f">其他返回</text>
+<text x="1447" y="3186" font-size="17" fill="#64748b">必须恰好调用一个已开放且名称匹配的结果类型，否则 →</text>
+<text x="1447" y="3210" font-size="17" fill="#64748b">INTERVIEW_TOOL。</text>
+<path d="M1417 2934L1417 3160" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<path d="M686 3285L704 3285" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="716" y="3283" font-size="20" fill="#1e3a5f">解析选题或决策</text>
+<text x="716" y="3311" font-size="17" fill="#64748b">schema.model_validate(args)，结</text>
+<text x="716" y="3335" font-size="17" fill="#64748b">果及 reason 写入 history。</text>
+<path d="M1061 3285L1139 3285" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M1139 3285L1157 3285" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="3283" font-size="20" fill="#1e3a5f">SearchedQuestion</text>
+<text x="1169" y="3311" font-size="17" fill="#64748b">number 有值 → 展示主问；number 为 None → 跳过考点。</text>
+<path d="M1139 3386L1157 3386" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="3384" font-size="20" fill="#1e3a5f">DecisionNext</text>
+<text x="1169" y="3412" font-size="17" fill="#64748b">沟通或追问必须带正文；澄清将用户消息标为 request，其余标为 answer</text>
+<text x="1169" y="3436" font-size="17" fill="#64748b">并记录点评和等级。</text>
+<path d="M1139 3511L1157 3511" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="3509" font-size="20" fill="#1e3a5f">返回 → 05</text>
+<text x="1169" y="3537" font-size="17" fill="#64748b">把动作和对应结果交给 interview() 的循环分支。</text>
+<path d="M1139 3285L1139 3511" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M686 2356L686 3285" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<path d="M60 2414L60 3606" fill="none" stroke="#1e40af" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="40" y="3610" width="288" height="85" fill="#dbeafe" stroke="#1e40af"/>
+<text x="50" y="3640" font-size="24" fill="#1e40af">05  执行动作</text>
+<text x="50" y="3668" font-size="17" fill="#64748b">按 action 分支</text>
+<path d="M330 3638L408 3638" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M408 3638L426 3638" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="428" y="3610" width="353" height="105" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="438" y="3636" font-size="20" fill="#6d28d9">需要工具：use_tool()</text>
+<text x="438" y="3664" font-size="17" fill="#64748b">emit('tool', …)，一次接收模型提出的</text>
+<text x="438" y="3688" font-size="17" fill="#64748b">全部查询。</text>
+<path d="M783 3638L1139 3638" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="790" y="3629" font-size="15" fill="#6d28d9">输入  plan.history、calls（检索调用列表）</text>
+<text x="790" y="3659" font-size="15" fill="#047857">输出  found：题号 → 题库记录</text>
+<path d="M1139 3638L1157 3638" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="1159" y="3610" width="353" height="130" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="1169" y="3636" font-size="20" fill="#6d28d9">逐个检索：</text>
+<text x="1169" y="3661" font-size="20" fill="#6d28d9">search_questions()</text>
+<text x="1169" y="3689" font-size="17" fill="#64748b">对每个调用取 args['topic']；每次最</text>
+<text x="1169" y="3713" font-size="17" fill="#64748b">多返回 4 条。</text>
+<path d="M1514 3638L1870 3638" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="1521" y="3629" font-size="15" fill="#6d28d9">输入  topic：本次查询词</text>
+<text x="1521" y="3659" font-size="15" fill="#047857">输出  rows：候选题列表</text>
+<path d="M1870 3638L1888 3638" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="3636" font-size="20" fill="#1e3a5f">准备请求</text>
+<text x="1900" y="3664" font-size="17" fill="#64748b">读取知识库密钥；未配置 → 503。带 X-API-Key 向本机 8200 发送 POST</text>
+<text x="1900" y="3688" font-size="17" fill="#64748b">/api/search。</text>
+<path d="M1870 3763L1888 3763" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="3761" font-size="20" fill="#1e3a5f">处理响应</text>
+<text x="1900" y="3789" font-size="17" fill="#64748b">请求体含 topic、limit=4。413 终止；401 鉴权失败；其他 HTTP 错误转</text>
+<text x="1900" y="3813" font-size="17" fill="#64748b">502。</text>
+<path d="M1870 3888L1888 3888" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="3886" font-size="20" fill="#1e3a5f">成功取 items</text>
+<text x="1900" y="3914" font-size="17" fill="#64748b">可能是空列表，空列表不触发补查。</text>
+<path d="M1870 3638L1870 3888" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<path d="M1139 3989L1157 3989" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="3987" font-size="20" fill="#1e3a5f">记录结果并回到 03</text>
+<text x="1169" y="4015" font-size="17" fill="#64748b">每份 rows 按原 tool_call_id 写入 history；所有候选按 sort_order</text>
+<text x="1169" y="4039" font-size="17" fill="#64748b">汇入 found。</text>
+<path d="M1139 3638L1139 3989" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<path d="M408 4114L426 4114" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="428" y="4086" width="353" height="105" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="438" y="4112" font-size="20" fill="#6d28d9">展示主问：new_question()</text>
+<text x="438" y="4140" font-size="17" fill="#64748b">先按 result.number 在 found 中查</text>
+<text x="438" y="4164" font-size="17" fill="#64748b">题；查不到 → INTERVIEW_SOURCE。</text>
+<path d="M783 4114L1139 4114" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="790" y="4086" font-size="15" fill="#6d28d9">输入  plan、题干、提示、出处、题目 ID、参考</text>
+<text x="790" y="4105" font-size="15" fill="#6d28d9">答案</text>
+<text x="790" y="4135" font-size="15" fill="#047857">输出  AgentResponse（等待回答）</text>
+<path d="M1139 4114L1157 4114" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="4112" font-size="20" fill="#1e3a5f">建立主问 → 06</text>
+<text x="1169" y="4140" font-size="17" fill="#64748b">传题库原文、提示、出处、question_id 和参考答案。</text>
+<path d="M408 4239L426 4239" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="428" y="4211" width="353" height="129" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="438" y="4237" font-size="20" fill="#6d28d9">沟通交流：wait_for_user()</text>
+<text x="438" y="4265" font-size="17" fill="#64748b">先用</text>
+<text x="438" y="4289" font-size="17" fill="#64748b">current_question(plan.history)</text>
+<text x="438" y="4313" font-size="17" fill="#64748b">取出原题。</text>
+<path d="M783 4239L1139 4239" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="790" y="4211" font-size="15" fill="#6d28d9">输入  plan、原题、clarification=</text>
+<text x="790" y="4230" font-size="15" fill="#6d28d9">result.message</text>
+<text x="790" y="4260" font-size="15" fill="#047857">输出  AgentResponse（等待回答）</text>
+<path d="M1139 4239L1157 4239" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="4237" font-size="20" fill="#1e3a5f">沿用原题 → 06</text>
+<text x="1169" y="4265" font-size="17" fill="#64748b">传 result.message 作为澄清内容，保留原来的轮号。</text>
+<path d="M408 4388L426 4388" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="428" y="4360" width="353" height="81" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="438" y="4386" font-size="20" fill="#6d28d9">继续追问：new_question()</text>
+<text x="438" y="4414" font-size="17" fill="#64748b">使用模型生成的追问和提示。</text>
+<path d="M783 4388L1139 4388" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="790" y="4379" font-size="15" fill="#6d28d9">输入  plan、追问题干、提示、来源</text>
+<text x="790" y="4409" font-size="15" fill="#047857">输出  AgentResponse（等待回答）</text>
+<path d="M1139 4388L1157 4388" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="4386" font-size="20" fill="#1e3a5f">建立追问 → 06</text>
+<text x="1169" y="4414" font-size="17" fill="#64748b">来源为“现场追问”；默认题目 ID 和参考答案为空。</text>
+<path d="M408 4489L426 4489" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="438" y="4487" font-size="20" fill="#1e3a5f">面试结束</text>
+<text x="438" y="4515" font-size="17" fill="#64748b">只有最后一个考点直接 break → 07。提前给出这个动作时走下方换题逻辑。</text>
+<path d="M408 4590L426 4590" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="438" y="4588" font-size="20" fill="#1e3a5f">新的题目 / 跳过 / 非末项结束</text>
+<text x="438" y="4616" font-size="17" fill="#64748b">跳过时先 emit 状态通知。topic_index 加 1，将 user_reply 和</text>
+<text x="438" y="4640" font-size="17" fill="#64748b">found 清为 None → 03。</text>
+<path d="M408 3638L408 4590" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<rect x="40" y="4713" width="288" height="109" fill="#dbeafe" stroke="#1e40af"/>
+<text x="50" y="4743" font-size="24" fill="#1e40af">06  返回题目并等待</text>
+<text x="50" y="4771" font-size="17" fill="#64748b">本次调用返回，用户提交后重新进</text>
+<text x="50" y="4795" font-size="17" fill="#64748b">入 01</text>
+<path d="M330 4741L408 4741" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M408 4741L426 4741" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="428" y="4713" width="353" height="81" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="438" y="4739" font-size="20" fill="#6d28d9">创建新轮：new_question()</text>
+<text x="438" y="4767" font-size="17" fill="#64748b">主问和追问经过此处。</text>
+<path d="M783 4741L1139 4741" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="790" y="4713" font-size="15" fill="#6d28d9">输入  plan、text、hint、source、</text>
+<text x="790" y="4732" font-size="15" fill="#6d28d9">question_id、reference</text>
+<text x="790" y="4762" font-size="15" fill="#047857">输出  AgentResponse（needs_input）</text>
+<path d="M1139 4741L1157 4741" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="4739" font-size="20" fill="#1e3a5f">计算轮号、保存题目</text>
+<text x="1169" y="4767" font-size="17" fill="#64748b">统计 history 中 kind='question' 的数量再加 1；保存轮号、考点、题面</text>
+<text x="1169" y="4791" font-size="17" fill="#64748b">、提示、出处、ID、参考答案。</text>
+<path d="M1139 4866L1157 4866" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="1159" y="4838" width="353" height="81" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="1169" y="4864" font-size="20" fill="#6d28d9">转交 wait_for_user()</text>
+<text x="1169" y="4892" font-size="17" fill="#64748b">传入刚保存的条目，处理过程见下方。</text>
+<path d="M1514 4866L1870 4866" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="1521" y="4857" font-size="15" fill="#6d28d9">输入  plan、question=新题条目</text>
+<text x="1521" y="4887" font-size="15" fill="#047857">输出  AgentResponse（needs_input）</text>
+<path d="M1870 4866L1888 4866" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="4864" font-size="20" fill="#1e3a5f">使用返回值</text>
+<text x="1900" y="4892" font-size="17" fill="#64748b">new_question() 直接返回 wait_for_user() 给出的等待响应。</text>
+<path d="M1139 4741L1139 4866" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<path d="M408 4967L426 4967" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="428" y="4939" width="353" height="106" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="438" y="4965" font-size="20" fill="#6d28d9">生成待答响应：</text>
+<text x="438" y="4990" font-size="20" fill="#6d28d9">wait_for_user()</text>
+<text x="438" y="5018" font-size="17" fill="#64748b">澄清路径从这里直接进入。</text>
+<path d="M783 4967L1139 4967" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="790" y="4939" font-size="15" fill="#6d28d9">输入  plan、question、clarification（可</text>
+<text x="790" y="4958" font-size="15" fill="#6d28d9">选）</text>
+<text x="790" y="4988" font-size="15" fill="#047857">输出  AgentResponse（needs_input）</text>
+<path d="M1139 4967L1157 4967" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="4965" font-size="20" fill="#1e3a5f">组织公开数据</text>
+<text x="1169" y="4993" font-size="17" fill="#64748b">只取轮号、来源、题目 ID、提示和题干。</text>
+<path d="M1139 5068L1157 5068" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="5066" font-size="20" fill="#1e3a5f">若有 clarification</text>
+<text x="1169" y="5094" font-size="17" fill="#64748b">将说明加入公开数据，同时写入 history，关联当前轮号。</text>
+<path d="M1139 5169L1157 5169" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="5167" font-size="20" fill="#1e3a5f">返回 interview_question</text>
+<text x="1169" y="5195" font-size="17" fill="#64748b">pending_input.prompt 取澄清说明或题干；state 取</text>
+<text x="1169" y="5219" font-size="17" fill="#64748b">plan.model_dump()。</text>
+<path d="M1139 4967L1139 5169" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<path d="M408 5294L426 5294" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="438" y="5292" font-size="20" fill="#1e3a5f">运行服务接手续接</text>
+<text x="438" y="5320" font-size="17" fill="#64748b">RunService.execute() 校验结果，保存 run.state，生成</text>
+<text x="438" y="5344" font-size="17" fill="#64748b">pending_input.id。用户提交后带原 state 回 01。</text>
+<path d="M408 4741L408 5294" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<rect x="40" y="5417" width="288" height="85" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="50" y="5447" font-size="24" fill="#6d28d9">07  生成报告并结束</text>
+<text x="50" y="5475" font-size="17" fill="#64748b">调用 make_report()</text>
+<path d="M330 5445L686 5445" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="337" y="5436" font-size="15" fill="#6d28d9">输入  plan、info</text>
+<text x="337" y="5466" font-size="15" fill="#047857">输出  AgentResponse（</text>
+<text x="337" y="5485" font-size="15" fill="#047857">interview_report）</text>
+<path d="M686 5445L704 5445" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="716" y="5443" font-size="20" fill="#1e3a5f">整理 plan.history</text>
+<text x="716" y="5471" font-size="17" fill="#64748b">逐项读取 kind，将数据归到对应的题目。</text>
+<path d="M1061 5445L1139 5445" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M1139 5445L1157 5445" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="5443" font-size="20" fill="#1e3a5f">question → 新建一行</text>
+<text x="1169" y="5471" font-size="17" fill="#64748b">保存轮号、考点、题目和出处，作答与澄清先留空。</text>
+<path d="M1139 5546L1157 5546" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="5544" font-size="20" fill="#1e3a5f">request / clarification</text>
+<text x="1169" y="5572" font-size="17" fill="#64748b">先登记用户想澄清的内容，再回填面试官的说明。</text>
+<path d="M1139 5647L1157 5647" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="5645" font-size="20" fill="#1e3a5f">answer → 填写回答</text>
+<text x="1169" y="5673" font-size="17" fill="#64748b">记录作答原文、feedback 和 grade。</text>
+<path d="M1139 5445L1139 5647" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M686 5748L704 5748" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="716" y="5746" font-size="20" fill="#1e3a5f">筛选讨论过的题</text>
+<text x="716" y="5774" font-size="17" fill="#64748b">discussed 只保留已有回答或澄清的行</text>
+<text x="716" y="5798" font-size="17" fill="#64748b">。</text>
+<path d="M1061 5748L1139 5748" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M1139 5748L1157 5748" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="1159" y="5720" width="353" height="106" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="1169" y="5746" font-size="20" fill="#6d28d9">有讨论：output_model() →</text>
+<text x="1169" y="5771" font-size="20" fill="#6d28d9">ask_model()</text>
+<text x="1169" y="5799" font-size="17" fill="#64748b">使用 Report 结构和整场历史。</text>
+<path d="M1514 5748L1870 5748" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="1521" y="5720" font-size="15" fill="#6d28d9">输入  Report 模型、history、info、报告提</text>
+<text x="1521" y="5739" font-size="15" fill="#6d28d9">示及任务</text>
+<text x="1521" y="5769" font-size="15" fill="#047857">输出  含 parsed、raw、parsing_error 的</text>
+<text x="1521" y="5788" font-size="15" fill="#047857">字典</text>
+<path d="M1870 5748L1888 5748" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="5746" font-size="20" fill="#1e3a5f">解析返回值</text>
+<text x="1900" y="5774" font-size="17" fill="#64748b">parsed 为空 → INTERVIEW_OUTPUT；成功则将报告内容记回 history</text>
+<text x="1900" y="5798" font-size="17" fill="#64748b">。</text>
+<path d="M1139 5874L1157 5874" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="5872" font-size="20" fill="#1e3a5f">没有讨论</text>
+<text x="1169" y="5900" font-size="17" fill="#64748b">默认“本场尚未作答”；已有考点但从未出题则说明未选到合适原题。</text>
+<path d="M1139 5748L1139 5874" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M686 5975L704 5975" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="716" y="5973" font-size="20" fill="#1e3a5f">组装、返回报告</text>
+<text x="716" y="6001" font-size="17" fill="#64748b">填入 answers、plan_reason 和 topics；每个考点取最后一次已答的等</text>
+<text x="716" y="6025" font-size="17" fill="#64748b">级、点评及讨论轮号。</text>
+<path d="M686 6100L704 6100" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="706" y="6072" width="353" height="130" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="716" y="6098" font-size="20" fill="#6d28d9">报告落库：</text>
+<text x="716" y="6123" font-size="20" fill="#6d28d9">repository.save_report()</text>
+<text x="716" y="6151" font-size="17" fill="#64748b">运行服务校验响应并保存 state，把报告</text>
+<text x="716" y="6175" font-size="17" fill="#64748b">交给仓库。</text>
+<path d="M1061 6100L1417 6100" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="1068" y="6072" font-size="15" fill="#6d28d9">输入  interview、报告数据、快照副本、</text>
+<text x="1068" y="6091" font-size="15" fill="#6d28d9">run.id、is_demo</text>
+<text x="1068" y="6121" font-size="15" fill="#047857">输出  含 id 的报告记录</text>
+<path d="M1417 6100L1435 6100" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1447" y="6098" font-size="20" fill="#1e3a5f">完成运行</text>
+<text x="1447" y="6126" font-size="17" fill="#64748b">取报告 id 存入 run.report_id；设置完成状态，发送事件并记录本轮会话</text>
+<text x="1447" y="6150" font-size="17" fill="#64748b">。</text>
+<path d="M686 5445L686 6100" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<path d="M40 6222L2320 6222" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<text x="40" y="6250" font-size="18" fill="#1e40af">供主流程调用的公共函数与异常出口</text>
+<rect x="40" y="6279" width="288" height="85" fill="#dbeafe" stroke="#1e40af"/>
+<text x="50" y="6309" font-size="24" fill="#1e40af">08  共用模型函数</text>
+<text x="50" y="6337" font-size="17" fill="#64748b">在 02、04、07 的调用点使用</text>
+<path d="M330 6307L408 6307" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M408 6307L426 6307" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="428" y="6279" width="353" height="81" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="438" y="6305" font-size="20" fill="#6d28d9">准备模型：build_chat()</text>
+<text x="438" y="6333" font-size="17" fill="#64748b">读取模型配置，创建后缓存复用。</text>
+<path d="M783 6307L1139 6307" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="790" y="6298" font-size="15" fill="#6d28d9">输入  无参数</text>
+<text x="790" y="6328" font-size="15" fill="#047857">输出  ChatOpenAI 实例</text>
+<path d="M1139 6307L1157 6307" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="6305" font-size="20" fill="#1e3a5f">检查密钥，创建 ChatOpenAI</text>
+<text x="1169" y="6333" font-size="17" fill="#64748b">密钥为空 → MODEL_NOT_CONFIGURED；设置请求超时 180 秒、</text>
+<text x="1169" y="6357" font-size="17" fill="#64748b">max_retries=0。</text>
+<path d="M408 6432L426 6432" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="428" y="6404" width="353" height="81" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="438" y="6430" font-size="20" fill="#6d28d9">结构化输出：output_model()</text>
+<text x="438" y="6458" font-size="17" fill="#64748b">创建计划或报告时使用。</text>
+<path d="M783 6432L1139 6432" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="790" y="6423" font-size="15" fill="#6d28d9">输入  schema（TopicPlan 或 Report）</text>
+<text x="790" y="6453" font-size="15" fill="#047857">输出  已绑定结构化输出的模型</text>
+<path d="M1139 6432L1157 6432" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="6430" font-size="20" fill="#1e3a5f">绑定 schema</text>
+<text x="1169" y="6458" font-size="17" fill="#64748b">build_chat().with_structured_output(schema, method=</text>
+<text x="1169" y="6482" font-size="17" fill="#64748b">'function_calling', include_raw=True)。</text>
+<path d="M408 6557L426 6557" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="428" y="6529" width="353" height="81" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="438" y="6555" font-size="20" fill="#6d28d9">发送请求：ask_model()</text>
+<text x="438" y="6583" font-size="17" fill="#64748b">组装实际送给当前角色的消息。</text>
+<path d="M783 6557L1139 6557" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="790" y="6529" font-size="15" fill="#6d28d9">输入  model、history、info、prompt、</text>
+<text x="790" y="6548" font-size="15" fill="#6d28d9">task</text>
+<text x="790" y="6578" font-size="15" fill="#047857">输出  所绑定模型的原始返回值</text>
+<path d="M1139 6557L1157 6557" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="1159" y="6529" width="353" height="105" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="1169" y="6555" font-size="20" fill="#6d28d9">生成消息：message()</text>
+<text x="1169" y="6583" font-size="17" fill="#64748b">当前系统提示、用户任务追加到 history</text>
+<text x="1169" y="6607" font-size="17" fill="#64748b">。</text>
+<path d="M1514 6557L1870 6557" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="1521" y="6548" font-size="15" fill="#6d28d9">输入  role、content</text>
+<text x="1521" y="6578" font-size="15" fill="#047857">输出  消息字典 {role, content}</text>
+<path d="M1870 6557L1888 6557" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="6555" font-size="20" fill="#1e3a5f">打包 role 和 content</text>
+<text x="1900" y="6583" font-size="17" fill="#64748b">正文是字符串就直接使用；其他值用 json.dumps(..., ensure_ascii=</text>
+<text x="1900" y="6607" font-size="17" fill="#64748b">False) 转为文本。</text>
+<path d="M1139 6682L1157 6682" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1169" y="6680" font-size="20" fill="#1e3a5f">按顺序组装 messages</text>
+<text x="1169" y="6708" font-size="17" fill="#64748b">当前系统提示 → 岗位和简历 → 历史中的非系统消息（含末尾任务）。略过重</text>
+<text x="1169" y="6732" font-size="17" fill="#64748b">复资料，保留工具调用 ID。</text>
+<path d="M1139 6807L1157 6807" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<rect x="1159" y="6779" width="353" height="81" fill="#ddd6fe" stroke="#6d28d9"/>
+<text x="1169" y="6805" font-size="20" fill="#6d28d9">调用 model.ainvoke()</text>
+<text x="1169" y="6833" font-size="17" fill="#64748b">等待模型回复。</text>
+<path d="M1514 6807L1870 6807" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<text x="1521" y="6798" font-size="15" fill="#6d28d9">输入  messages：本次请求的消息列表</text>
+<text x="1521" y="6828" font-size="15" fill="#047857">输出  AIMessage 或结构化结果字典</text>
+<path d="M1870 6807L1888 6807" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="6805" font-size="20" fill="#1e3a5f">成功</text>
+<text x="1900" y="6833" font-size="17" fill="#64748b">直接将回复交回调用方，由调用方决定如何记录和解析。</text>
+<path d="M1870 6908L1888 6908" fill="none" stroke="#6d28d9" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="1900" y="6906" font-size="20" fill="#1e3a5f">请求异常</text>
+<text x="1900" y="6934" font-size="17" fill="#64748b">APIStatusError 为 413 → INTERVIEW_TOO_LARGE；其他请求异常</text>
+<text x="1900" y="6958" font-size="17" fill="#64748b">继续上抛。</text>
+<path d="M1870 6807L1870 6908" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<path d="M1139 6557L1139 6807" fill="none" stroke="#6d28d9" stroke-width="1.5"/>
+<path d="M408 6307L408 6557" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<rect x="40" y="7031" width="288" height="109" fill="#dbeafe" stroke="#1e40af"/>
+<text x="50" y="7061" font-size="24" fill="#1e40af">09  异常出口</text>
+<text x="50" y="7089" font-size="17" fill="#64748b">RunService.execute() 捕获</text>
+<text x="50" y="7113" font-size="17" fill="#64748b">异常</text>
+<path d="M330 7059L408 7059" fill="none" stroke="#64748b" stroke-width="1.5"/>
+<path d="M408 7059L426 7059" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="438" y="7057" font-size="20" fill="#1e3a5f">终止本次运行</text>
+<text x="438" y="7085" font-size="17" fill="#64748b">设为 failed，清空 pending_input，生成脱敏错误结果。</text>
+<path d="M408 7160L426 7160" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#tip)"/>
+<text x="438" y="7158" font-size="20" fill="#1e3a5f">记录错误事件</text>
+<text x="438" y="7186" font-size="17" fill="#64748b">AppError 保留业务错误码；其他异常记录类型和末尾调用位置。413 直接结</text>
+<text x="438" y="7210" font-size="17" fill="#64748b">束。</text>
+<path d="M408 7059L408 7160" fill="none" stroke="#64748b" stroke-width="1.5"/></g></svg>

@@ -201,8 +201,17 @@ function reportContent(report, jobId) {
   }
   const dimensions = (data.dimensions || []).length
     ? `<h3>面试维度反馈</h3><dl class="job-meta interview-dimensions">${data.dimensions.map(x => `<dt>${esc(x.name)}</dt><dd>${x.score == null ? '未考察' : score(x.score)}</dd>`).join('')}</dl>` : '';
-  return header + reportSection('面试概述', data.summary) + dimensions + reportSection('练习重点', data.weaknesses) + reportSection('推荐练习', data.practice) +
-    `<details class="detail-section" open><summary>回看本次问答（${(data.answers || []).length} 轮）</summary><ol class="answers">${(data.answers || []).map(x => `<li><strong>${esc(x.question)}</strong><p>${esc(x.answer)}</p><small>${esc(x.source || '来源未知')}</small></li>`).join('')}</ol></details>`;
+  // topics 用于展示每个考点的结论。rounds 是支撑结论的作答轮号，空数组表示没有已评回答。
+  const topics = data.topics?.length ? '<h3>考点反馈</h3><ul>' + data.topics.map(t =>
+    `<li><strong>${esc(t.name)} · ${esc(t.grade ?? (t.rounds?.length ? '证据不足' : '未考察'))}</strong> ${esc(t.summary)}${t.rounds?.length ? ` <small>第 ${esc(t.rounds.join('、'))} 轮</small>` : ''}</li>`).join('') + '</ul>' : '';
+  if (data.messages?.length) {
+    return header + reportSection('面试概述', data.summary) + topics + dimensions +
+      reportSection('练习重点', data.weaknesses) + reportSection('推荐练习', data.practice) +
+      `<details class="detail-section" open><summary>回看本次对话</summary>${interviewChatHTML(data.messages)}</details>` +
+      `<details class="detail-section"><summary>逐题点评</summary><ol class="answers">${(data.answers || []).filter(x => x.feedback).map(x => `<li><strong>${esc(x.question)}</strong><p>${esc(x.feedback)}</p></li>`).join('')}</ol></details>`;
+  }
+  return header + reportSection('面试概述', data.summary) + topics + dimensions + reportSection('练习重点', data.weaknesses) + reportSection('推荐练习', data.practice) +
+    `<details class="detail-section" open><summary>回看本次问答（${(data.answers || []).length} 轮）</summary><ol class="answers">${(data.answers || []).map(x => `<li><strong>${esc(x.question)}</strong>${(x.clarifications || []).map(c => `<p><small>用户提问</small> ${esc(c.user)}<br><small>面试官说明</small> ${esc(c.assistant)}</p>`).join('')}${x.answer ? `<p>${esc(x.answer)}</p>` : ''}${x.feedback ? `<p><strong>面试点评</strong> ${esc(x.feedback)}</p>` : ''}<small>${esc(x.source || '来源未知')}</small></li>`).join('')}</ol></details>`;
 }
 function jobActivity(jobId, action, reports) {
   const key = jobId + '/' + action;
@@ -268,6 +277,11 @@ function placeField(side, label, names) {
   return `<label class="field"><span>${label}</span><select name="${side}" required>
     <option value="">请选择地点</option>${options}</select></label>`;
 }
+function interviewChatHTML(messages) {
+  if (!messages?.length) return '';
+  return `<div class="interview-chat" aria-label="面试聊天记录">${messages.map(item =>
+    `<div class="bubble ${item.role === 'user' ? 'user' : ''}"><small>${item.role === 'user' ? '我' : '面试官'}</small><div class="prose">${esc(item.content)}</div>${item.source ? `<small>来源：${esc(item.source)}</small>` : ''}${item.hint ? `<details><summary>查看提示</summary><div class="prose">${esc(item.hint)}</div></details>` : ''}</div>`).join('')}</div>`;
+}
 function pendingHTML(run) {
   const pending = run.pending_input;
   if (!pending) return '';
@@ -283,14 +297,16 @@ function pendingHTML(run) {
         ${placeField('end', '办公地点', data.place_choices.end)}</div>
         <div class="actions">${button('结束本次', 'run-decision', `${idAttr(run.id)} data-decision="finish"`, 'secondary')}<button>确认并继续</button></div></form></section>`;
   }
-  return `<section class="pending">${interview ? `<span class="badge green">第 ${esc(data.round || 1)} / 最多 8 轮</span><h3 class="interview-question">${esc(data.question || pending.prompt)}</h3><p class="caption">来源：${esc(data.source || '未知')}</p>` : `<h3>需要你补充一点信息</h3><p>${esc(pending.prompt)}</p>`}
-    <form data-run-answer="${esc(run.id)}" data-input-id="${esc(pending.id)}"><textarea name="text" required maxlength="20000" rows="4" aria-label="${interview ? '面试回答' : '补充信息'}" placeholder="${interview ? '写下你的思路，可以结合经历说明。' : '填写补充内容'}"></textarea><div class="actions">${button(interview ? '提前结束并生成报告' : '结束本次', 'run-decision', `${idAttr(run.id)} data-decision="finish"`, 'secondary')}<button>${interview ? '提交回答' : '提交并继续'}</button></div></form></section>`;
+  // 面试消息在上方聊天记录中展示，这里只保留发送输入的表单。
+  return `<section class="pending">${interview ? '' : `<h3>需要你补充一点信息</h3><p>${esc(pending.prompt)}</p>`}
+    <form data-run-answer="${esc(run.id)}" data-input-id="${esc(pending.id)}"><textarea name="text" required maxlength="20000" rows="4" aria-label="${interview ? '面试消息' : '补充信息'}" placeholder="${interview ? '输入你的回答或问题…' : '填写补充内容'}"></textarea><div class="actions">${button(interview ? '结束面试并生成报告' : '结束本次', 'run-decision', `${idAttr(run.id)} data-decision="finish"`, 'secondary')}<button>${interview ? '发送' : '提交并继续'}</button></div></form></section>`;
 }
 function runHTML(run) {
   const status = {running: '运行中', needs_input: '等待补充', completed: '已完成', partial: '部分结果', failed: '失败'}[run.status];
   const reviewable = ['profile_draft', 'job_drafts'].includes(run.result?.kind);
   return `<section class="run-panel"><div class="run-head"><h3>${esc(actionNames[run.action] || '当前活动')}</h3><span class="badge ${run.status === 'failed' ? 'red' : run.status === 'needs_input' ? 'amber' : 'green'}">${status}</span></div>
     ${run.is_demo ? '<p class="caption">固定模拟样例 · 未调用模型或真实工具</p>' : ''}
+    ${run.action === 'interview' ? interviewChatHTML(run.messages) : ''}
     ${run.status === 'running' ? '<p class="caption">正在处理，请稍候。当前活动结束前不能开始另一项活动。</p>' : ''}
     ${run.status === 'failed' ? `<div class="error-banner">${esc(run.result?.data?.message || '处理失败，请人工整理资料。')}</div>` : pendingHTML(run)}
     ${reviewable && !['running', 'needs_input', 'failed'].includes(run.status) ? button('核对处理结果', 'review-result', idAttr(run.id), 'secondary small') : ''}
@@ -320,11 +336,16 @@ function updateRunPanels() {
       : !runJob(run) && runPage(run) === host.dataset.pageRun);
     const latest = candidates.find(x => x.id === state.run?.id && active()) || candidates.at(-1);
     const run = id && latest?.report_id ? null : latest;
-    const signature = run ? JSON.stringify([run.id, run.status, run.next_seq, run.pending_input, run.result]) : '';
+    const signature = run ? JSON.stringify([run.id, run.status, run.next_seq, run.pending_input, run.result, run.messages]) : '';
     if (host.dataset.signature === signature) continue;
     host.querySelectorAll('form').forEach(form => rememberDraft(form));
     const traceOpen = host.dataset.runId === run?.id && host.querySelector('.trace')?.open;
+    const chat = host.querySelector('.interview-chat');
+    const chatTop = chat?.scrollTop || 0;
+    const followChat = !chat || chat.scrollHeight - chat.scrollTop - chat.clientHeight < 40;
     host.innerHTML = run ? runHTML(run) : '';
+    const newChat = host.querySelector('.interview-chat');
+    if (newChat) newChat.scrollTop = followChat ? newChat.scrollHeight : chatTop;
     host.dataset.runId = run?.id || '';
     if (traceOpen && run) host.querySelector('.trace').open = true;
     host.dataset.signature = signature;

@@ -30,6 +30,14 @@ class ReportRepository:
     def delete(self, row: Report):
         self.session.delete(row)
 
+    # job_id 来自用户点击的岗位。按时间倒序只取一条，旧评估和别的岗位都不会参与本场规划。
+    def latest_evaluation(self, job_id):
+        # 评估入口一次只评一个岗位，只读取匹配的最新真实评估数据。
+        return self.session.scalar(select(Report.data).where(
+            Report.kind == 'evaluation', Report.is_demo.is_(False),
+            Report.data['jobs'][0]['job_id'].as_string() == job_id,
+        ).order_by(Report.created_at.desc(), Report.id.desc()).limit(1))
+
     def add(self, **values):
         """用 values 中的结果 data、输入快照 snapshot、运行标识 run_id 和演示标记 is_demo 新增报告。
         values 的 kind 为 evaluation（评估）或 interview（面试）；结果校验和快照复制由调用方负责。

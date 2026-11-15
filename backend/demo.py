@@ -98,7 +98,7 @@ async def handle(command, services, emit):
             index = len(answers)
             answers.append({'question': QUESTIONS[index], 'answer': human['text'],
                             'question_id': f'demo-{index + 1}', 'source': '固定演示题库'})
-        if len(answers) >= 8 or human['decision'] == 'finish':
+        if len(answers) >= len(QUESTIONS) or human['decision'] == 'finish':
             return AgentResponse(kind='interview_report', data={
                 'title': '模拟面试报告', 'summary': NOTICE + ' 以下评分未评价你的回答。', 'answers': answers,
                 'dimensions': [{'name': 'Agent 基础（固定示例）', 'score': 75 if answers else None}],

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, UTC
 import json
 import re
+import traceback
 import uuid
 
 from pydantic import ValidationError
@@ -46,6 +47,8 @@ class Run:
     status: str = 'running'
     # 每个运行使用独立的可变容器；dataclass 的工厂在创建实例时才生成列表或字典。
     events: list = field(default_factory=list)
+    # 仅保存本场面试公开的聊天内容，供页面轮询、刷新和报告回看。
+    messages: list = field(default_factory=list)
     result: dict | None = None
     pending_input: dict | None = None
     state: dict = field(default_factory=dict)
@@ -127,6 +130,7 @@ class RunService:
             'next_seq': events[-1]['seq'] if events else 0,
             'result': run.result, 'pending_input': run.pending_input, 'report_id': run.report_id,
             'usage': run.usage, 'previous_usage': run.previous_usage,
+            'messages': run.messages,
         })
 
     def report_events(self, run_id: str):
@@ -174,6 +178,9 @@ class RunService:
             if not isinstance(ids, list) or len(ids) != 1 or not isinstance(ids[0], str):
                 raise AppError(422, 'JOB_SELECTION', '一次只能选择一个岗位')
             snapshot['jobs'] = [self.repository.job(ids[0])]
+            if body.action == 'interview' and self.settings.agent_mode == 'real':
+                # 把这次读到的评估留在开场资料中，续答时不会因用户另做评估而更换依据。
+                snapshot['evaluation'] = self.repository.latest_evaluation(ids[0])
         if body.action in {'parse_resume', 'extract_jobs'}:
             key = body.input.get('document_id')
             if key:
@@ -270,7 +277,11 @@ class RunService:
                 for side, choices in run.result['data'].get('place_choices', {}).items():
                     if body.data.get(side) not in map(str, range(1, len(choices) + 1)):
                         raise AppError(422, 'PLACE_SELECTION', '请从候选列表中选择通勤起点和办公地点')
+            elif body.decision == 'answer' and run.action == 'interview' and not body.text.strip():
+                raise AppError(422, 'ANSWER_REQUIRED', '请填写面试回答，或选择提前结束。')
             run.pending_input = None
+            if run.action == 'interview' and body.decision == 'answer':
+                run.messages.append({'role': 'user', 'content': body.text})
             if run.action == 'chat' and body.decision in {'confirm', 'reject', 'finish'}:
                 user, message = {
                     'confirm': ('确认修改', '修改已由应用确认并保存。后续问题将使用更新后的资料。'),
@@ -326,7 +337,8 @@ class RunService:
             else:
                 human_input = deepcopy(human)
                 if human_input['decision'] == 'answer':
-                    if human_input.get('data'):
+                    # 面试报告保留回答原文；其他动作可把结构化表单内容附在文字后面。
+                    if human_input.get('data') and run.action != 'interview':
                         human_input['text'] += '\n补充信息：' + json.dumps(human_input['data'], ensure_ascii=False)
                 else:
                     human_input['text'] = {
@@ -370,7 +382,14 @@ class RunService:
                 pending = PendingInput.model_validate(response.pending_input).model_dump(exclude_none=True)
                 pending['id'] = uuid.uuid4().hex
                 run.pending_input = pending
+                if run.action == 'interview':
+                    run.messages.append({
+                        'role': 'assistant', 'content': pending['prompt'],
+                        'hint': response.data.get('hint', ''), 'source': response.data.get('source', ''),
+                    })
             elif response.kind in {'evaluation_report', 'interview_report'} and response.status in {'completed', 'partial'}:
+                if run.action == 'interview':
+                    run.result['data']['messages'] = deepcopy(run.messages)
                 report = self.repository.save_report('evaluation' if response.kind == 'evaluation_report' else 'interview',
                                                      run.result['data'], deepcopy(run.snapshot), run.id, run.is_demo)
                 run.report_id = report['id']
@@ -391,12 +410,20 @@ class RunService:
             run.status = 'failed'
             raise
         except Exception as exc:
+            # 在运行控制台打印完整调用栈及原始异常，便于复制后定位问题。
+            traceback.print_exc()
             run.status = 'failed'
             run.pending_input = None
             code = exc.code if isinstance(exc, AppError) else 'INVALID_AGENT_OUTPUT' if isinstance(exc, ValidationError) else 'RUN_FAILED'
             message = exc.message if isinstance(exc, AppError) else f'执行失败（{type(exc).__name__}），请检查接入代码和脱敏事件。'
             run.result = {'kind': 'error', 'data': {'code': code, 'message': self.clean(message)}}
-            await self.emit(run, 'error', message, {'code': code})
+            details = {'code': code}
+            if not isinstance(exc, AppError):
+                # 每次异常只记最后的调用位置，不把请求正文、简历或密钥写进执行日志。
+                frames = traceback.extract_tb(exc.__traceback__)[-5:]
+                details.update(error_type=type(exc).__name__,
+                               stack=[f'{frame.filename}:{frame.lineno} {frame.name}' for frame in frames])
+            await self.emit(run, 'error', message, details)
 
     async def close(self):
         """取消并等待尚未结束的后台任务，成功无返回值；不保存未完成运行的恢复检查点。"""

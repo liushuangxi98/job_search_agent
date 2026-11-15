@@ -1,5 +1,6 @@
 """上传资料的业务服务：文件校验、元数据事务和失败清理。"""
 import hashlib
+import traceback
 from pathlib import Path, PureWindowsPath
 import uuid
 import zipfile
@@ -136,6 +137,7 @@ class DocumentService:
                 with zipfile.ZipFile(path) as archive:
                     valid = 'word/document.xml' in archive.namelist()
             except zipfile.BadZipFile:
+                traceback.print_exc()
                 valid = False
         if not valid:
             raise AppError(422, 'FILE_CONTENT', '文件内容与扩展名不符')
