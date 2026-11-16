@@ -80,14 +80,14 @@ class JobService:
             else:
                 # 公司和岗位名只缩小候选范围；其余字段也完全相同时才复用已有岗位。
                 candidates = repository.find_matches(data['company'], data['title'])
+                incoming_fields = {key: value for key, value in data.items() if key != 'evidence'}
+                incoming_sources = set(source_ids)
                 row = None
                 for item in candidates:
                     existing = self.serialize(repository, item)['data']
-                    same_fields = {k: v for k, v in existing.items() if k != 'evidence'} == {
-                        k: v for k, v in data.items() if k != 'evidence'
-                    }
+                    same_fields = {k: v for k, v in existing.items() if k != 'evidence'} == incoming_fields
                     existing_sources = {entry['document_id'] for entry in existing['evidence'] if entry['document_id']}
-                    if same_fields and existing_sources == set(source_ids):
+                    if same_fields and existing_sources == incoming_sources:
                         row = item
                         # 同一截图重复导入可补充摘录，另一张截图单独保留岗位记录。
                         merged = existing['evidence'] + [entry for entry in data['evidence'] if entry not in existing['evidence']]

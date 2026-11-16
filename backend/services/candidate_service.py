@@ -91,13 +91,13 @@ class CandidateService:
                 raise AppError(503, 'DATABASE_NOT_INITIALIZED', '请先初始化数据库')
             if row.revision != revision:
                 raise AppError(409, 'REVISION_CONFLICT', '资料已发生变化，请刷新后重新确认')
+            should_confirm = row.confirmed if confirmed is None else confirmed
             data = ProfileUpdate(
                 revision=revision,
-                confirmed=row.confirmed if confirmed is None else confirmed,
+                confirmed=should_confirm,
                 data=data,
             ).data.model_dump()
             # 已确认资料的后续修改也必须保持完整，避免聊天把核心字段清空。
-            should_confirm = row.confirmed if confirmed is None else confirmed
             if should_confirm:
                 missing = check_dict_missing(data, ProfileData)
                 if missing:
