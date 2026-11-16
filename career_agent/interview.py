@@ -147,13 +147,12 @@ def check_reply(reply, questions):
                 return 'search_questions 的 args 应只包含 queries 关键词列表，且不能为空。'
             if any(not isinstance(query, str) or not query.strip() for query in queries):
                 return 'queries 中每个关键词都必须是非空文本。'
-    elif action in ('展示主问', '跳过考点'):
-        if action == '展示主问':
-            row = questions.get(result.question_id)
-            if row is None:
-                return f'题目 ID {result.question_id} 不在当前考点的检索结果中，请使用实际候选 ID。'
-            if result.message != row['question'] or result.reference != row['answer']:
-                return '请在 message 和 reference 中原样填写该题的 question 和 answer。'
+    elif action == '展示主问':
+        row = questions.get(result.question_id)
+        if row is None:
+            return f'题目 ID {result.question_id} 不在当前考点的检索结果中，请使用实际候选 ID。'
+        if result.message != row['question'] or result.reference != row['answer']:
+            return '请在 message 和 reference 中原样填写该题的 question 和 answer。'
     elif action in ('沟通交流', '继续追问') and not result.message.strip():
         return f'选择“{action}”时，message 必须填写给用户看的内容。'
     if action in ('展示主问', '继续追问') and not result.source.strip():

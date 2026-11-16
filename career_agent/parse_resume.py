@@ -7,7 +7,6 @@
 """
 import json
 import traceback
-from io import BytesIO
 from pathlib import Path
 
 from docx import Document
@@ -61,11 +60,10 @@ async def get_resume(command, file_path, emit) -> AgentResponse:
     missing = check_dict_missing(update, ProfileData)
     if missing:  # 简历需要补充
         question = '还需补充：' + '、'.join(item['label'] for item in missing) + '。可以一次补齐，也可以先回答其中几项。'
-        ret = AgentResponse(
+        return AgentResponse(
             status='needs_input', kind='chat', data={'message': question},
             pending_input=dict(kind='question', prompt=question), usage=usage, state=update
         )
-        return ret
     else:
         return AgentResponse(status='completed', kind='profile_draft', data=update, usage=usage)
 

@@ -7,20 +7,13 @@
 """
 import json
 import traceback
-from io import BytesIO
-from pathlib import Path
-
-from docx import Document
-from docx.text.paragraph import Paragraph
-from pypdf import PdfReader
 from pydantic import ValidationError
 
 from .llm import build_chat
 from .prompts import GEI_JOB_PROMPTS
-from backend.contracts import AgentResponse, PendingInput
-from backend.schemas import ProfileData, JobData
+from backend.contracts import AgentResponse
+from backend.schemas import JobData
 from backend.services.material_validation import check_dict_missing
-from backend.exceptions import AppError
 from .tools.local_ocr import ocr_image
 
 
