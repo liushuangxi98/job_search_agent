@@ -215,8 +215,18 @@ class JobMatchAnalysis(BaseModel):
         description='引用本岗位或画像中实际用于判断的原文，每项填写 source（来源）和 text（原文）。')
 
 
+class BusinessAnalysis(BaseModel):
+    """联网资料只参与这次独立的业务讲解。"""
+    business_analysis: str = Field(title='业务分析', min_length=1,
+        description='通俗解释公司业务、岗位作用及入职后的具体工作，统一写成可分段的正文。公司介绍简短，岗位分析详细，标明资料依据与推断。')
+
+
 class ReportJob(JobMatchAnalysis):
     """单岗结果；程序根据岗位快照关联 ID，计算匹配分并填写通勤。"""
+    # 程序合并两次分析。历史报告没有业务分析时仍使用空字符串。
+    business_analysis: str = Field(title='业务分析', default='')
+    # 来源由联网工具填写，默认空列表兼容此前保存的评估报告。
+    business_sources: list[dict[str, str]] = Field(default_factory=list, title='联网检索来源')
     job_id: str = Field(title='岗位ID', description='本次快照中被评估的岗位 ID。')
     match_score: float | None = Field(title='匹配分', default=None, ge=0, le=100, allow_inf_nan=False,
         description='已确认材料对岗位必备要求的覆盖分，无法评分时为 null。')

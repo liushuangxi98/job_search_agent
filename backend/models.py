@@ -2,7 +2,7 @@
 from datetime import datetime, UTC
 import uuid
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -72,3 +72,16 @@ class Report(Record, Base):
     is_demo: Mapped[bool] = mapped_column(Boolean)
     data: Mapped[dict] = mapped_column(JSON)
     snapshot: Mapped[dict] = mapped_column(JSON)
+    # 搜索正文单独保存，普通报告查询不读取；完整 JSON 导出时才按需加载。
+    source_contents: Mapped[dict | None] = mapped_column(JSON, default=dict, nullable=True, deferred=True)
+
+
+# 全部资料和按类型筛选的资料，都按创建时间倒序展示。
+Index('ix_documents_created_at', Document.created_at.desc())
+Index('ix_documents_kind_created_at', Document.kind, Document.created_at.desc())
+# 分页列表采用时间倒序、ID 升序，索引方向与查询一致。
+Index('ix_jobs_created_at_id', Job.created_at.desc(), Job.id)
+Index('ix_memories_created_at_id', Memory.created_at.desc(), Memory.id)
+# 报告列表以及某类最新报告查询，使用各自的排序索引。
+Index('ix_reports_created_at_id', Report.created_at.desc(), Report.id.desc())
+Index('ix_reports_kind_demo_created_at_id', Report.kind, Report.is_demo, Report.created_at.desc(), Report.id.desc())

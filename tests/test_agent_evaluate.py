@@ -10,7 +10,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_openai import ChatOpenAI
 
 from backend.config import Settings
-from backend.contracts import AgentCommand, JobMatchAnalysis, RequirementMatch, RunInput, RunStart, validate_result
+from backend.contracts import AgentCommand, BusinessAnalysis, JobMatchAnalysis, RequirementMatch, RunInput, RunStart, validate_result
 from backend.exceptions import AppError
 from backend.services.report_service import markdown
 from backend.services.run_service import Run, RunService
@@ -19,6 +19,16 @@ from career_agent.agent import handle
 from career_agent.config import AgentSettings
 from career_agent.tools import amap
 from workbench_fixtures import complete_job, complete_profile
+
+
+@pytest.fixture(autouse=True)
+def company_search(monkeypatch):
+    # 原有匹配和通勤回归用空搜索结果，避免读取本机密钥后访问真实搜索服务。
+    monkeypatch.setattr(evaluate, 'search_company', AsyncMock(return_value=[]))
+    monkeypatch.setattr(evaluate, 'make_search_queries', AsyncMock(return_value=(['公司业务'],
+                        {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0})))
+    monkeypatch.setattr(evaluate, 'analyze_business', AsyncMock(return_value=(BusinessAnalysis(business_analysis='业务说明'),
+                        {'input_tokens': 0, 'output_tokens': 0, 'total_tokens': 0})))
 
 
 @pytest.mark.parametrize('judgments, expected', [
@@ -86,7 +96,8 @@ def test_evaluate_uses_one_snapshot_job_per_call(monkeypatch, valid_output):
 @pytest.fixture
 def matching_model(monkeypatch):
     analysis = JobMatchAnalysis(matches=[RequirementMatch(requirement='Python', assessment='符合', evidence='开发接口平台')])
-    invoke = AsyncMock(return_value={'parsed': analysis, 'raw': SimpleNamespace(usage_metadata={'total_tokens': 42})})
+    invoke = AsyncMock(return_value={'parsed': analysis, 'raw': SimpleNamespace(
+        usage_metadata={'input_tokens': 30, 'output_tokens': 12, 'total_tokens': 42})})
     model = Mock()
     model.with_structured_output.return_value.ainvoke = invoke
     monkeypatch.setattr(evaluate, 'build_chat', lambda: model)
@@ -112,7 +123,7 @@ def test_confirm_endpoints_resumes_routes_only(tmp_path, monkeypatch, matching_m
     jobs = [{'id': 'a', 'data': complete_job(address='办公园区')}]
     snapshot = {'profile': {'data': complete_profile(commute_origin='出发园区', city='上海')}, 'jobs': jobs}
     reports = Mock()
-    reports.save_report.return_value = {'id': 'report'}
+    reports.save_report.side_effect = lambda kind, data, *args: {'id': 'report', 'data': data}
     service = RunService(Settings(_env_file=None, data_dir=tmp_path), reports, None, handle)
     run = Run('test', 'evaluate', {}, {}, snapshot, False)
     service.runs[run.id] = run
@@ -141,7 +152,7 @@ def test_confirm_endpoints_resumes_routes_only(tmp_path, monkeypatch, matching_m
         assert len(calls) == 2 and not reports.save_report.called
         await answer('2', '1')
         assert run.status == 'completed' and matching_model.await_count == 1
-        assert run.usage == {'total_tokens': 42} and run.previous_usage is None
+        assert run.usage == {'input_tokens': 30, 'output_tokens': 12, 'total_tokens': 42} and run.previous_usage is None
         reports.save_report.assert_called_once()
         # A 完成后才显式开始 B；B 的匹配也只执行一次。
         reports.job.return_value = {'id': 'b', 'data': complete_job(address='其他路1号')}

@@ -155,7 +155,7 @@ async function resumePage() {
       ${card('已确认的记忆', '你可以查看、修改或移除', memoryBody || '<p class="caption">暂无已确认记忆。</p>', button('补充一条记忆', 'add-memory', '', 'ghost small'))}
     </div><article class="card"><header class="card-head"><div><h2>我的简历画像</h2><p>人工核对 · 薪资仅作资料展示</p></div><span class="badge">修订 ${candidate.revision}</span></header><div class="card-body">
       ${draft ? `<div class="tip">${draft.revision !== candidate.revision ? '已保存资料有更新；未保存输入已保留，直接保存会提示版本冲突。' : '未保存的输入已保留。'} ${button('读取已保存资料', 'discard-candidate', '', 'ghost small')}</div>` : ''}
-      <form id="profile-form"><div id="candidate-errors" class="error-banner" role="alert" hidden></div>${candidateFields(profile)}<div class="form-actions"><button>保存并确认画像与条件</button></div></form>
+      <form id="profile-form"><div id="candidate-errors" class="error-banner" role="alert" hidden></div>${candidateFields(profile)}<div class="form-actions"><button>保存并确认画像与条件</button>${button('删除画像', 'delete-candidate', '', 'ghost')}</div></form>
       ${(profile.evidence || []).length ? `<details class="detail-section"><summary>原始提取依据</summary><pre class="prose">${esc(JSON.stringify(profile.evidence, null, 2))}</pre></details>` : ''}
     </div></article></div>`;
 }
@@ -190,6 +190,8 @@ function reportContent(report, jobId) {
     const job = report.snapshot?.jobs?.find(item => item.id === jobId)?.data || row;
     const legacyAssessment = {matched: '符合', partial: '部分符合', gap: '不符合', unknown: '资料不足'};
     return header + `<h3>${esc(job.company || '未披露公司')} · ${esc(job.title || '未披露职位')}</h3><div class="report-score">${score(row.match_score)}<small>匹配分 / 100</small></div>
+      ${row.business_analysis ? reportSection('业务分析', row.business_analysis) : ''}
+      ${(row.business_sources || []).length ? `<details class="detail-section"><summary>联网检索来源</summary><ol>${row.business_sources.map((s, i) => `<li>[${i + 1}] ${/^https?:\/\//.test(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a>` : esc(s.title)}</li>`).join('')}</ol></details>` : ''}
       ${reportSection('求职建议', row.recommendation || '暂无建议。')}
       ${reportSection('最有利的经历', row.supporting_experiences || row.strengths || '本次未列出。')}
       ${reportSection('最不利的关键要求', row.key_requirement || row.gaps || '本次未列出。')}
@@ -778,6 +780,18 @@ const actions = {
     delete state.drafts.candidate;
     state.profileDraft = null;
     await render();
+  },
+  'delete-candidate': async () => {
+    if (!confirm('删除当前简历画像和求职条件，并清空本页未保存的输入？简历原件、岗位、记忆和历史报告会保留。')) return;
+    // 使用当前页面的版本发起删除，其他页面更新过资料时由后端提示冲突。
+    state.candidate = await api('/candidate?revision=' + state.candidate.revision, {method: 'DELETE'});
+    // 删除成功后清掉本地草稿，避免 render 再把旧输入填回空画像。
+    const form = $('#profile-form');
+    if (form) form.dataset.dirty = 'false';
+    delete state.drafts.candidate;
+    state.profileDraft = null;
+    await render();
+    toast('画像和求职条件已删除，可以重新填写或从简历提取。');
   },
   'upload': element => chooseFiles(element.dataset.kind),
   'edit-job': element => editJob(element.dataset.id),

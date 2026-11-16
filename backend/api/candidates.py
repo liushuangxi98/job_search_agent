@@ -1,5 +1,5 @@
 """当前画像和求职条件接口。"""
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from ..schemas import CandidateUpdate, ProfileUpdate
 from .dependencies import CandidateServiceDep
@@ -25,6 +25,12 @@ def confirm_candidate(body: CandidateUpdate, service: CandidateServiceDep):
 def profile(service: CandidateServiceDep):
     """返回画像 data、修订号 revision 和确认状态 confirmed；记录缺失时返回 404。"""
     return service.get()
+
+
+@router.delete('/candidate')
+def delete_candidate(service: CandidateServiceDep, revision: int = Query(ge=0)):
+    """按页面读取的版本删除画像，返回可重新填写的空资料。"""
+    return service.delete(revision)
 
 
 @router.put('/profile')

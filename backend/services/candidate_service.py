@@ -46,6 +46,21 @@ class CandidateService:
                 raise AppError(503, 'DATABASE_NOT_INITIALIZED', '请先初始化数据库')
             return self.workbench_data(row)
 
+    def delete(self, revision: int):
+        """清空当前画像和求职条件，保留单用户记录以便重新填写。"""
+        # 删除和保存共用行锁及修订号，过期页面不能清除刚更新的资料。
+        with self.session_factory.begin() as session:
+            repository = CandidateRepository(session)
+            row = repository.get(lock=True)
+            if row is None:
+                raise AppError(503, 'DATABASE_NOT_INITIALIZED', '请先初始化数据库')
+            if row.revision != revision:
+                raise AppError(409, 'REVISION_CONFLICT', '个人资料已更新，请刷新后重新删除')
+            # 使用标准空画像清除字段和提取依据，并取消确认状态。
+            repository.update(row, ProfileData().model_dump(), confirmed=False)
+            # 沿用更新方法递增版本，旧表单或聊天提案随后会发生版本冲突。
+            return self.workbench_data(row)
+
     def confirm(self, profile: dict, revision: int):
         """个人资料须完整；校验在写入前完成，整份资料用一个事务。"""
         profile = ProfileData.model_validate(profile).model_dump()

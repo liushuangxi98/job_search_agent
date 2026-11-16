@@ -66,8 +66,16 @@ class ReportService:
             row = repository.get_by_run(run_id)
             # 同一次运行再次保存时返回已有报告，保留最初的结果和输入快照。
             if row is None:
+                # 在副本中拆出正文，来源的标题、链接、时间及顺序留在展示数据里。
+                stored_data = deepcopy(data)
+                source_contents = {}
+                for job in stored_data.get('jobs', []):
+                    for source in job.get('business_sources', []):
+                        if 'content' in source:
+                            source_contents.setdefault(job['job_id'], {})[source['url']] = source.pop('content')
+                # 分开的两份数据属于同一行，由同一事务保存。
                 row = repository.add(
-                    kind=kind, data=deepcopy(data), snapshot=deepcopy(snapshot),
+                    kind=kind, data=stored_data, source_contents=source_contents, snapshot=deepcopy(snapshot),
                     run_id=run_id, is_demo=is_demo,
                 )
             return self.serialize(row)
@@ -77,10 +85,21 @@ class ReportService:
 
         HTTP 层将 format 限定为 md/json；报告不存在时沿用 get 的 AppError。
         """
-        result = self.get(report_id)
         if format == 'md':
-            return markdown(result)
-        return json.dumps(result, ensure_ascii=False, indent=2)
+            return markdown(self.get(report_id))
+        with self.session_factory() as session:
+            row = ReportRepository(session).get(report_id)
+            if row is None:
+                raise AppError(404, 'NOT_FOUND', '记录不存在或已删除')
+            result = deepcopy(self.serialize(row))
+            # 显式导出完整 JSON 时读取正文列，恢复原来的完整报告格式。
+            source_contents = row.source_contents or {}
+            for job in result['data'].get('jobs', []):
+                contents = source_contents.get(job['job_id'], {})
+                for source in job.get('business_sources', []):
+                    if source['url'] in contents:
+                        source['content'] = contents[source['url']]
+            return json.dumps(result, ensure_ascii=False, indent=2)
 
 
 def markdown(report):
@@ -98,7 +117,13 @@ def markdown(report):
         for row in data.get('jobs', []):
             job = snapshot_jobs.get(row.get('job_id'), row)
             lines += ['', '## ' + cell(job.get('company')) + ' · ' + cell(job.get('title')),
-                      '', '匹配分：' + cell(row.get('match_score')), '', row.get('recommendation', '')]
+                      '', '匹配分：' + cell(row.get('match_score'))]
+            # 导出与页面保持相同顺序，保留当时联网检索的来源链接。
+            if row.get('business_analysis'):
+                lines += ['', '### 业务分析', '', row['business_analysis']]
+                for number, source in enumerate(row.get('business_sources', []), 1):
+                    lines += [f"- [{number}] {source['title']}：{source['url']}"]
+            lines += ['', '### 求职建议', '', row.get('recommendation', '')]
             lines += ['', '### 匹配依据']
             for item in row.get('matches', []):
                 lines += ['- 要求：' + item.get('requirement', ''), '  依据：' + item.get('evidence', '')]

@@ -393,6 +393,10 @@ class RunService:
                 report = self.repository.save_report('evaluation' if response.kind == 'evaluation_report' else 'interview',
                                                      run.result['data'], deepcopy(run.snapshot), run.id, run.is_demo)
                 run.report_id = report['id']
+                if response.kind == 'evaluation_report':
+                    # 运行轮询和会话记录也使用已保存的展示数据，避免继续携带搜索正文。
+                    response.data = deepcopy(report['data'])
+                    run.result['data'] = response.data
             run.status = response.status
             await self.emit(run, 'status', {'completed': '已完成', 'partial': '已有部分结果', 'needs_input': '等待你的补充', 'failed': '执行失败'}[run.status])
             if run.status != 'failed':

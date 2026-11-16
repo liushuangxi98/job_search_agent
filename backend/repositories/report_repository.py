@@ -25,7 +25,9 @@ class ReportRepository:
 
     def list(self):
         """按创建时间从新到旧返回全部报告记录列表；没有报告时返回空列表。"""
-        return self.session.scalars(select(Report).order_by(Report.created_at.desc())).all()
+        # 小表可能被优化器改用 filesort，显式使用时间索引，避免大 JSON 耗尽排序内存。
+        query = select(Report).with_hint(Report, 'FORCE INDEX (ix_reports_created_at_id)', dialect_name='mysql')
+        return self.session.scalars(query.order_by(Report.created_at.desc())).all()
 
     def delete(self, row: Report):
         self.session.delete(row)
