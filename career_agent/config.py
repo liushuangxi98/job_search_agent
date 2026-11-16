@@ -18,4 +18,6 @@ class AgentSettings(BaseSettings):
     amap_api_key: SecretStr = Field(title='高德 Web 服务 Key', default=SecretStr(''), repr=False)
     # 与独立知识库共享的检索密钥，从本工程 .env 读取。
     knowledge_api_key: SecretStr = Field(title='知识库检索密钥', default=SecretStr(''), repr=False)
+    # 阿里云 CleverSee 搜索凭证，仅由联网工具读取。
+    aliyun_search_api_key: SecretStr = Field(title='阿里云搜索密钥', default=SecretStr(''), repr=False)
 

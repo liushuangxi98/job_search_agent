@@ -244,3 +244,4 @@ async def interview(command, emit):
 
         # 跳过、换题或在非末项收到结束动作时，进入下一考点。
         plan.topic_index += 1
+    return await make_report(plan, info)
