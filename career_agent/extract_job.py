@@ -22,7 +22,6 @@ from backend.schemas import ProfileData, JobData
 from backend.services.material_validation import check_dict_missing
 from backend.exceptions import AppError
 from .tools.local_ocr import ocr_image
-from .tools.local_ocr_primary import ocr_primary
 
 
 async def get_job(command, services, emit) -> AgentResponse:
