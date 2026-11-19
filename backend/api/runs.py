@@ -13,7 +13,7 @@ router = APIRouter(prefix='/runs', tags=['Agent 运行'])
 @router.post('', status_code=202)
 async def start_run(body: RunStart, service: RunServiceDep):
     """按 body 的 action/input/context 创建运行和输入快照，返回 202 及当前运行数据。
-    已有活动或所需画像未确认返回 409，Agent 未接入返回 503，输入无效或所引记录缺失返回 422/404。
+    已有活动或所需画像不完整返回 409，Agent 未接入返回 503，输入无效或所引记录缺失返回 422/404。
     """
     # await 等待服务完成受理；服务已安排后台执行，因此这里无需等 Agent 生成最终结果。
     return await service.start(body)

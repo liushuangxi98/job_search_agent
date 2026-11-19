@@ -12,7 +12,7 @@ from .api.middleware import BodyLimitMiddleware, revalidate_static_assets
 from .config import ROOT, Settings
 from .database import Database
 from .services.agent_data_service import AgentDataService
-from .services.candidate_service import CandidateService
+from .services.profile_service import ProfileService
 from .services.document_service import DocumentService
 from .services.job_service import JobService
 from .services.memory_service import MemoryService
@@ -29,12 +29,12 @@ def create_app(settings: Settings | None = None, handler=None) -> FastAPI:
     """
     settings = settings or Settings()
     database = Database(settings)
-    candidates = CandidateService(database.session_factory)
+    profiles = ProfileService(database.session_factory)
     documents = DocumentService(settings.data_dir, database.session_factory)
     jobs = JobService(database.session_factory)
     memories = MemoryService(database.session_factory)
     reports = ReportService(database.session_factory)
-    agent_data = AgentDataService(candidates, documents, jobs, memories, reports)
+    agent_data = AgentDataService(profiles, documents, jobs, memories, reports)
     handler = handler if handler is not None else load_handler(settings.agent_mode)
     runs = RunService(settings, agent_data, documents, handler)
 
@@ -55,7 +55,7 @@ def create_app(settings: Settings | None = None, handler=None) -> FastAPI:
     # 服务对象在当前应用内复用；共享服务不代表共享一次数据库操作的 Session。
     app.state.settings = settings
     app.state.database = database
-    app.state.candidate_service = candidates
+    app.state.profile_service = profiles
     app.state.document_service = documents
     app.state.job_service = jobs
     app.state.memory_service = memories

@@ -6,22 +6,22 @@ from workbench_fixtures import complete_job, complete_profile
 
 def test_profile_persists_json_and_rejects_stale_update(client, settings):
     initial = client.get('/api/profile').json()
-    payload = {'revision': initial['revision'], 'confirmed': True,
-               'data': complete_profile(name='求职者 🧑‍💻', summary='四年 Python 测试开发')}
+    payload = {'revision': initial['revision'],
+               'profile': complete_profile(name='求职者 🧑‍💻', summary='四年 Python 测试开发')}
     saved = client.put('/api/profile', json=payload)
     assert saved.status_code == 200
     assert saved.json()['revision'] == initial['revision'] + 1
     assert client.put('/api/profile', json=payload).status_code == 409
     with TestClient(create_app(settings)) as restarted:
         result = restarted.get('/api/profile').json()
-        assert result['confirmed'] is True
-        assert result['data']['skills'] == ['Python', '自动化测试']
-        assert result['data']['name'] == '求职者 🧑‍💻'
+        assert result['id'] == saved.json()['id']
+        assert result['profile']['skills'] == ['Python', '自动化测试']
+        assert result['profile']['name'] == '求职者 🧑‍💻'
 
 
 def test_invalid_preferences_do_not_change_database(client):
     before = client.get('/api/profile').json()
-    bad = {'revision': before['revision'], 'confirmed': False, 'data': {'salary_min': 30000, 'salary_max': 20000}}
+    bad = {'revision': before['revision'], 'profile': {'salary_min': 30000, 'salary_max': 20000}}
     assert client.put('/api/profile', json=bad).status_code == 422
     assert client.get('/api/profile').json() == before
 

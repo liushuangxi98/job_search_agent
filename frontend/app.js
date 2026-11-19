@@ -22,7 +22,7 @@ const jobTextKeys = ['company', 'title', 'city', 'address', 'job_description', '
 const actionNames = {parse_resume: '简历整理', extract_jobs: '岗位提取', evaluate: '岗位评估', interview: '模拟面试', chat: '聊天'};
 const state = {
   page: 'jobs', params: new URLSearchParams(), health: null, generation: 0,
-  candidate: null, profileDraft: null, drafts: {},
+  savedProfile: null, profileDraft: null, drafts: {},
   jobs: [], reports: [], documents: [], query: '', offset: 0, expanded: new Set(),
   selectedReports: {}, routeHash: null, run: null, runs: new Map(), timer: null,
   starting: false, responding: new Set(), processed: new Set(), pollError: false,
@@ -58,7 +58,7 @@ function showError(error) {
   }
 }
 function draftKey(form) {
-  return form.dataset.inputId ? 'input:' + form.dataset.inputId : form.id === 'profile-form' ? 'candidate' : null;
+  return form.dataset.inputId ? 'input:' + form.dataset.inputId : form.id === 'profile-form' ? 'profile' : null;
 }
 function rememberDraft(form, dirty = false) {
   const key = draftKey(form);
@@ -67,7 +67,7 @@ function rememberDraft(form, dirty = false) {
   if (form.dataset.dirty !== 'true') return;
   state.drafts[key] = {
     values: formData(form),
-    revision: state.drafts[key]?.revision ?? state.candidate?.revision,
+    revision: state.drafts[key]?.revision ?? state.savedProfile?.revision,
   };
 }
 function restoreDrafts(root = document) {
@@ -122,7 +122,7 @@ function profileEvidence(items) {
   });
   return `<details class="detail-section"><summary>提取依据</summary>${entries.length ? `<ul>${entries.join('')}</ul>` : '<p class="caption">暂无提取依据。</p>'}</details>`;
 }
-function candidateFields(profile) {
+function profileFields(profile) {
   const required = {required: true};
   const salary = {required: true, type: 'number', max: 10000000};
   return `<div class="form-grid">
@@ -144,18 +144,18 @@ function candidateFields(profile) {
   </div>${profileEvidence(profile.evidence)}`;
 }
 async function resumePage() {
-  const [candidate, docs, memories] = await Promise.all([api('/candidate'), api('/documents?kind=resume'), api('/memories')]);
-  state.candidate = candidate;
-  const profile = state.profileDraft || candidate.profile;
-  const draft = state.drafts.candidate;
+  const [savedProfile, docs, memories] = await Promise.all([api('/profile'), api('/documents?kind=resume'), api('/memories')]);
+  state.savedProfile = savedProfile;
+  const profile = state.profileDraft || savedProfile.profile;
+  const draft = state.drafts.profile;
   const memoryBody = memories.items.map(x => `<div class="memory-row"><p>${esc(x.data.content)}<small class="prose">${esc(x.data.evidence)}</small></p>${button('编辑', 'edit-memory', idAttr(x.id), 'ghost small')}${button('移除', 'delete-memory', idAttr(x.id), 'ghost small')}</div>`).join('');
-  return `<div class="page-intro"><div><h2>让经历与期待，都有清晰的表达</h2><p>整理简历和求职条件，核对后一起确认。所有标 * 项均为必填。</p></div><span class="badge ${candidate.confirmed && !draft && !state.profileDraft ? 'green' : 'amber'}">${draft || state.profileDraft ? '草稿待确认' : candidate.confirmed ? '已确认' : '待完善'}</span></div>
+  return `<div class="page-intro"><div><h2>让经历与期待，都有清晰的表达</h2><p>整理简历和求职条件，核对后一起确认。所有标 * 项均为必填。</p></div><span class="badge ${!savedProfile.missing.length && !draft && !state.profileDraft ? 'green' : 'amber'}">${draft || state.profileDraft ? '草稿待保存' : !savedProfile.missing.length ? '已保存' : '待完善'}</span></div>
     <div data-page-run="resume"></div><div class="split"><div class="stack">
       ${card('简历资料', 'PDF / DOCX · 单文件不超过 16 MiB', uploadBox('resume', '上传简历', '原件会保留，提取结果需要人工确认') + fileRows(docs.items, 'parse-resume') + (isDemo() ? button('查看示例画像', 'sample-profile', 'data-start', 'ghost small') : ''))}
       ${card('已确认的记忆', '你可以查看、修改或移除', memoryBody || '<p class="caption">暂无已确认记忆。</p>', button('补充一条记忆', 'add-memory', '', 'ghost small'))}
-    </div><article class="card"><header class="card-head"><div><h2>我的简历画像</h2><p>人工核对 · 薪资仅作资料展示</p></div><span class="badge">修订 ${candidate.revision}</span></header><div class="card-body">
-      ${draft ? `<div class="tip">${draft.revision !== candidate.revision ? '已保存资料有更新；未保存输入已保留，直接保存会提示版本冲突。' : '未保存的输入已保留。'} ${button('读取已保存资料', 'discard-candidate', '', 'ghost small')}</div>` : ''}
-      <form id="profile-form"><div id="candidate-errors" class="error-banner" role="alert" hidden></div>${candidateFields(profile)}<div class="form-actions"><button>保存并确认画像与条件</button>${button('删除画像', 'delete-candidate', '', 'ghost')}</div></form>
+    </div><article class="card"><header class="card-head"><div><h2>我的简历画像</h2><p>人工核对 · 薪资仅作资料展示</p></div><span class="badge">修订 ${savedProfile.revision}</span></header><div class="card-body">
+      ${draft ? `<div class="tip">${draft.revision !== savedProfile.revision ? '已保存资料有更新；未保存输入已保留，直接保存会提示版本冲突。' : '未保存的输入已保留。'} ${button('读取已保存资料', 'discard-profile', '', 'ghost small')}</div>` : ''}
+      <form id="profile-form"><div id="profile-errors" class="error-banner" role="alert" hidden></div>${profileFields(profile)}<div class="form-actions"><button>保存画像与条件</button>${button('删除画像', 'delete-profile', '', 'ghost')}</div></form>
       ${(profile.evidence || []).length ? `<details class="detail-section"><summary>原始提取依据</summary><pre class="prose">${esc(JSON.stringify(profile.evidence, null, 2))}</pre></details>` : ''}
     </div></article></div>`;
 }
@@ -236,7 +236,7 @@ function jobRow(item) {
   const reports = jobReports(item.id);
   const latest = reports.find(x => x.kind === 'evaluation');
   const result = latest?.data.jobs?.find(x => x.job_id === item.id);
-  const blocked = !state.candidate?.confirmed;
+  const blocked = !!state.savedProfile.missing.length;
   return `<article class="job-row" data-job-row="${esc(item.id)}"><div class="job-overview">
     <div><h3>${button(esc(data.title || '未披露职位'), 'open-job', idAttr(item.id), 'job-title')}</h3><small>${esc(data.company || '未披露公司')} · ${esc(data.city || '未披露')}</small></div>
     <div>${data.salary_min == null ? '未披露' : money(data.salary_min)} — ${data.salary_max == null ? '未披露' : money(data.salary_max)}<small>月薪</small></div>
@@ -252,11 +252,11 @@ function jobRow(item) {
     ${jobActivity(item.id, 'interview', reports.filter(x => x.kind === 'interview'))}</article>`;
 }
 async function jobsPage() {
-  const [jobs, candidate, reports, docs] = await Promise.all([
+  const [jobs, savedProfile, reports, docs] = await Promise.all([
     api(`/jobs?q=${encodeURIComponent(state.query)}&offset=${state.offset}&limit=20`),
-    api('/candidate'), api('/reports'), api('/documents?kind=image'),
+    api('/profile'), api('/reports'), api('/documents?kind=image'),
   ]);
-  state.candidate = candidate;
+  state.savedProfile = savedProfile;
   state.jobs = jobs.items;
   state.reports = reports.items;
   state.documents = docs.items;
@@ -268,7 +268,7 @@ async function jobsPage() {
   }
   const linkedReport = state.reports.find(x => x.id === state.params.get('report'));
   return `<div class="page-intro"><div><h2>值得了解的下一站</h2><p>每个岗位独立查看匹配依据、通勤路线与面试记录。</p></div></div>
-    ${!candidate.confirmed ? '<div class="tip">请先完善并确认个人资料，才能评估或面试。<a href="#/resume">前往简历画像 →</a></div>' : ''}
+    ${savedProfile.missing.length ? '<div class="tip">请先完善并保存个人资料，才能评估或面试。<a href="#/resume">前往简历画像 →</a></div>' : ''}
     <div class="toolbar"><form id="job-search" class="search"><input name="q" aria-label="搜索岗位" placeholder="搜索公司、职位或城市" value="${esc(state.query)}"><button class="secondary">搜索</button></form><div class="actions">${button('导入截图', 'upload', 'data-kind="image" data-start', 'secondary')}${button('粘贴招聘原文', 'paste-jd', 'data-start', 'secondary')}</div></div>
     ${missingJob ? `<div class="tip">关联岗位已移除或不存在。${linkedReport ? '下方保留当时的报告与资料快照。' : '请从岗位池重新选择。'}</div>${linkedReport ? `<article class="report">${reportContent(linkedReport, selected)}${reportTrace(linkedReport)}</article>` : ''}` : ''}
     <div data-page-run="jobs"></div><div class="job-list">${state.jobs.length ? state.jobs.map(jobRow).join('') : card('岗位池', '从一个感兴趣的岗位开始', empty('还没有导入岗位', '通过上方的“导入截图”或“粘贴招聘原文”开始。'))}</div>
@@ -712,10 +712,10 @@ async function saveJobDraft(form) {
     form.inert = false;
   }
 }
-function validateCandidate(form) {
+function validateProfile(form) {
   const data = formData(form);
   const missing = requiredProfileKeys.filter(key => !data[key]?.trim() || (key === 'skills' && !splitWords(data[key]).length));
-  const error = $('#candidate-errors');
+  const error = $('#profile-errors');
   error.hidden = !missing.length;
   error.textContent = missing.length ? '请补充：' + missing.map(key => labels[key]).join('、') : '';
   if (missing.length) {
@@ -735,22 +735,22 @@ function validateCandidate(form) {
   }
   return form.reportValidity();
 }
-async function saveCandidate(form) {
-  if (!validateCandidate(form)) return;
+async function saveProfile(form) {
+  if (!validateProfile(form)) return;
   const values = formData(form);
-  const profile = {...(state.profileDraft || state.candidate.profile)};
+  const profile = {...(state.profileDraft || state.savedProfile.profile)};
   for (const key of editableProfileKeys) profile[key] = values[key].trim();
   profile.skills = splitWords(values.skills);
   profile.experience_years = Number(values.experience_years);
   profile.salary_min = Number(values.salary_min);
   profile.salary_max = Number(values.salary_max);
-  const revision = state.drafts.candidate?.revision ?? state.candidate.revision;
-  state.candidate = await api('/candidate', {method: 'PUT', body: {revision, profile}});
+  const revision = state.drafts.profile?.revision ?? state.savedProfile.revision;
+  state.savedProfile = await api('/profile', {method: 'PUT', body: {revision, profile}});
   form.dataset.dirty = 'false';
-  delete state.drafts.candidate;
+  delete state.drafts.profile;
   state.profileDraft = null;
   await render();
-  toast('画像与求职条件已一起确认保存。');
+  toast('画像与求职条件已一起保存。');
 }
 async function resumeActivity() {
   if (!state.run) return;
@@ -773,22 +773,22 @@ const actions = {
   'close-chat': () => { state.chatOpen = false; renderChat(); },
   'close-modal': dismissDialog,
   'resume-activity': resumeActivity,
-  'discard-candidate': async () => {
+  'discard-profile': async () => {
     if (!confirm('放弃未保存的画像与条件，读取已保存资料？')) return;
     const form = $('#profile-form');
     if (form) form.dataset.dirty = 'false';
-    delete state.drafts.candidate;
+    delete state.drafts.profile;
     state.profileDraft = null;
     await render();
   },
-  'delete-candidate': async () => {
+  'delete-profile': async () => {
     if (!confirm('删除当前简历画像和求职条件，并清空本页未保存的输入？简历原件、岗位、记忆和历史报告会保留。')) return;
     // 使用当前页面的版本发起删除，其他页面更新过资料时由后端提示冲突。
-    state.candidate = await api('/candidate?revision=' + state.candidate.revision, {method: 'DELETE'});
+    state.savedProfile = await api('/profile?revision=' + state.savedProfile.revision, {method: 'DELETE'});
     // 删除成功后清掉本地草稿，避免 render 再把旧输入填回空画像。
     const form = $('#profile-form');
     if (form) form.dataset.dirty = 'false';
-    delete state.drafts.candidate;
+    delete state.drafts.profile;
     state.profileDraft = null;
     await render();
     toast('画像和求职条件已删除，可以重新填写或从简历提取。');
@@ -833,19 +833,19 @@ const actions = {
   'parse-resume': element => begin('parse_resume', {document_id: element.dataset.id}),
   'sample-profile': () => begin('parse_resume'),
   'use-profile-draft': async () => {
-    if (state.drafts.candidate && !confirm('用这份待确认草稿替换当前未保存的画像与条件？')) return;
+    if (state.drafts.profile && !confirm('用这份待确认草稿替换当前未保存的画像与条件？')) return;
     const data = state.modal.data;
     const batch = state.modal.batch;
     const form = $('#profile-form');
     if (form) form.dataset.dirty = 'false';
-    delete state.drafts.candidate;
+    delete state.drafts.profile;
     state.profileDraft = data;
     const values = {...data, skills: (data.skills || []).join('，')};
     values.experience_years = data.experience_years ?? '';
     values.salary_min = data.salary_min ?? '';
     values.salary_max = data.salary_max ?? '';
     values.commute_mode = data.commute_mode ?? '';
-    state.drafts.candidate = {values, revision: state.candidate?.revision ?? 0};
+    state.drafts.profile = {values, revision: state.savedProfile?.revision ?? 0};
     cancelBatch(batch);
     closeDialog();
     await go('resume');
@@ -892,7 +892,7 @@ document.addEventListener('submit', async event => {
       if (!data.text?.trim()) throw new Error('请先填写回答。');
       await respond(form.dataset.runAnswer, 'answer', data.text);
     } else if (form.id === 'profile-form') {
-      await saveCandidate(form);
+      await saveProfile(form);
     } else if (form.id === 'job-draft-form') {
       await saveJobDraft(form);
     } else if (form.id === 'job-search') {
@@ -976,8 +976,8 @@ document.addEventListener('toggle', async event => {
 document.addEventListener('invalid', event => {
   if (event.target.form?.id !== 'profile-form') return;
   const missing = [...event.target.form.querySelectorAll(':invalid')].map(x => labels[x.name]).filter(Boolean);
-  $('#candidate-errors').hidden = false;
-  $('#candidate-errors').textContent = '请补充或修正：' + missing.join('、');
+  $('#profile-errors').hidden = false;
+  $('#profile-errors').textContent = '请补充或修正：' + missing.join('、');
 }, true);
 $('#file-picker').addEventListener('change', event => { uploadFiles([...event.target.files]).catch(showError); });
 $('#editor').addEventListener('cancel', event => { event.preventDefault(); dismissDialog(); });

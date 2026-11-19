@@ -133,7 +133,7 @@ def test_confirm_endpoints_resumes_routes_only(tmp_path, monkeypatch, matching_m
         await run.task
 
     async def scenario():
-        reports.candidate.return_value = {**snapshot['profile'], 'confirmed': True}
+        reports.profile.return_value = snapshot['profile']
         second = RunStart(action='evaluate', input={'job_ids': ['b']})
         with pytest.raises(AppError) as busy:
             await service.start(second)
@@ -174,7 +174,7 @@ def test_confirm_endpoints_resumes_routes_only(tmp_path, monkeypatch, matching_m
 
 def test_evaluate_rejects_multiple_jobs_before_agent(tmp_path):
     repo = Mock()
-    repo.candidate.return_value = {'confirmed': True, 'data': complete_profile()}
+    repo.profile.return_value = {'data': complete_profile()}
     service = RunService(Settings(_env_file=None, data_dir=tmp_path), repo, None, AsyncMock())
     with pytest.raises(AppError) as error:
         asyncio.run(service.start(RunStart(action='evaluate', input={'job_ids': ['a', 'b']})))

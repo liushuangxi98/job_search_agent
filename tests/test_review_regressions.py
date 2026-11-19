@@ -88,7 +88,7 @@ def test_malformed_report_is_not_persisted(settings, kind, data):
         assert client.get('/api/reports').json()['total'] == 0
 
 
-def test_proposal_cannot_clear_a_confirmed_profile(settings):
+def test_proposal_cannot_clear_a_saved_profile(settings):
     async def handle(command, services, emit):
         return AgentResponse(status='needs_input', kind='chat', data={'message': '测试'},
                              pending_input={'kind': 'proposal', 'prompt': '清空简介', 'proposal': {

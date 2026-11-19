@@ -19,7 +19,7 @@ def command(text='这个岗位适合我吗？', session='session-a', job='job-a'
         run_id='run-' + text, action='chat', input={},
         context={'type': 'job', 'id': job, 'session_id': session},
         snapshot={
-            'profile': {'revision': 2, 'confirmed': True, 'data': complete_profile(skills=['Python'])},
+            'profile': {'revision': 2, 'data': complete_profile(skills=['Python'])},
             'context_job': {'id': job, 'revision': 3, 'data': complete_job(title='Agent开发', job_description='要求 RAG')},
         },
         state=state or {}, human_input=human if human is not None else {
@@ -373,7 +373,7 @@ def test_previous_model_usage_follows_session_across_runs(service, model_stub):
 def test_backend_confirms_once_and_rejects_without_saving(settings, model_stub):
     from fastapi.testclient import TestClient
     from backend.app import create_app
-    from test_runs_api import wait_run
+    from test_runs_api import ready_profile, wait_run
 
     calls = []
     async def answer(messages):
@@ -384,6 +384,7 @@ def test_backend_confirms_once_and_rejects_without_saving(settings, model_stub):
     usage = {'input_tokens': 80, 'output_tokens': 20, 'total_tokens': 100}
     model_stub(answer, usage)
     with TestClient(create_app(settings.model_copy(update={'agent_mode': 'real'}), handler=agent.handle)) as client:
+        ready_profile(client)
         before = client.get('/api/profile').json()
         def begin():
             result = client.post('/api/runs', json={
@@ -400,7 +401,7 @@ def test_backend_confirms_once_and_rejects_without_saving(settings, model_stub):
         assert wait_run(client, run['id'])['status'] == 'completed'
         assert client.get('/api/runs/' + run['id']).json()['usage'] == usage
         after = client.get('/api/profile').json()
-        assert after['data']['city'] == '上海'
+        assert after['profile']['city'] == '上海'
         assert after['revision'] == before['revision'] + 1
         assert len(calls) == 1
         assert client.post('/api/runs/' + run['id'] + '/input', json=body).status_code == 409

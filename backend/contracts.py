@@ -50,7 +50,7 @@ from .schemas import Payload, JobData, ProfileData
 #   返回：evaluation_report；信息不足但已有可用结果时可返回 partial。
 #
 # interview：岗位面试练习
-#   场景：用户针对一个岗位练习；发起前须确认画像。
+#   场景：用户针对一个岗位练习；发起前须保存完整画像。
 #   输入：input.job_id 为岗位 ID。
 #   出题：interview_question + needs_input。
 #   结束：完成面试或收到 finish 后返回 interview_report。
@@ -508,7 +508,7 @@ class AgentCommand:
     #   生命周期：确认提案后快照仍不更新，修改后的资料须通过 services 重新查询。
     #   示例：snapshot["profile"] 的内容（Python）：
     #     {
-    #       "revision": 3, "confirmed": True,
+    #       "id": 1, "revision": 3,
     #       "data": {"skills": ["Python"]}
     #     }
     snapshot: dict

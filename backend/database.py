@@ -1,9 +1,9 @@
 """连接池和 Session 工厂；具体业务事务由 services 层管理。"""
-from sqlalchemy import MetaData, Table, create_engine, select, text
+from sqlalchemy import MetaData, Table, create_engine, inspect, select, text
 from sqlalchemy.orm import sessionmaker
 
 from .config import Settings
-from .models import Base, Candidate, Job, JobSource, Document
+from .models import Base, Profile, ProfileState, Job, JobSource, Document
 from .schemas import ProfileData, JobData, current_profile_fields, current_job_fields
 
 
@@ -35,14 +35,14 @@ class Database:
         """检查连接和候选人表是否可查询；成功无返回值，数据库错误向上抛出。"""
         with self.engine.connect() as connection:
             connection.execute(text('SELECT 1'))
-            connection.execute(select(Candidate.id).limit(1))
+            connection.execute(select(Profile.id).limit(1))
 
     def close(self):
         """释放连接池中的空闲连接，无返回值；不会删除数据库或清空资料。"""
         self.engine.dispose()
 
 
-def merge_candidate_profile(engine):
+def migrate_profile_fields(engine):
     """升级当前画像：合并旧条件、清理退役字段，历史报告仍保留原快照。
 
     MySQL 的 ALTER TABLE 会隐式提交，因此先单独提交合并后的数据。
@@ -74,8 +74,36 @@ def migrate_job_evidence(database):
                 row.data = data
 
 
+def initialize_profile_storage(database):
+    """为已有整数主键开启自增；保留现有画像的 ID、内容与修订号。"""
+    engine = database.engine
+    if engine.dialect.name == 'mysql':
+        columns = {col['name']: col for col in inspect(engine).get_columns('candidate')}
+        # 旧安装的状态列没有数据库默认值，删列后首次保存才能省略它。
+        if 'confirmed' in columns:
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE candidate DROP COLUMN confirmed'))
+        id_column = columns['id']
+        if not id_column.get('autoincrement'):
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE candidate MODIFY COLUMN id INT NOT NULL AUTO_INCREMENT'))
+
+    ProfileState.__table__.create(engine, checkfirst=True)
+    with database.session_factory.begin() as session:
+        state = session.get(ProfileState, 'current')
+        if state is not None:
+            return
+        state = ProfileState(name='current', empty_revision=0)
+        session.add(state)
+        # 旧版首次初始化或删除后会留一条完全空白的占位记录。实际填写过的资料均保留。
+        row = session.scalars(select(Profile).with_for_update()).one_or_none()
+        if row is not None and row.profile in ({}, ProfileData().model_dump()):
+            state.empty_revision = row.revision
+            session.delete(row)
+
+
 def initialize_database(settings: Settings, *, create_database=False):
-    """补建缺失表和单用户初始记录，成功无返回值。
+    """补建缺失表并升级旧结构，首次保存前画像表为空。
 
     create_database=True 时先尝试建库；旧版个人资料会合并到 profile。
     连接、权限或 SQL 执行失败时抛出数据库异常，连接池仍会被释放。
@@ -93,11 +121,8 @@ def initialize_database(settings: Settings, *, create_database=False):
     database = Database(settings)
     try:
         Base.metadata.create_all(database.engine)
-        merge_candidate_profile(database.engine)
+        migrate_profile_fields(database.engine)
         migrate_job_evidence(database)
-        # begin() 在正常退出时提交、异常退出时回滚；仅缺失时插入初始画像记录。
-        with database.session_factory.begin() as session:
-            if session.get(Candidate, 1) is None:
-                session.add(Candidate(id=1))
+        initialize_profile_storage(database)
     finally:
         database.close()

@@ -24,13 +24,20 @@ class Record:
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
-class Candidate(Base):
-    # 单用户应用只有一行完整画像，revision 防止旧表单覆盖新资料。
+class Profile(Base):
+    # 单用户最多保存一份画像，首次保存由数据库分配 ID。
     __tablename__ = 'candidate'
-    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    __table_args__ = {'sqlite_autoincrement': True}
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     revision: Mapped[int] = mapped_column(default=0)
-    confirmed: Mapped[bool] = mapped_column(default=False)
     profile: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class ProfileState(Base):
+    """只保存空表的修订号；同一把行锁也用于串行化并发首次保存。"""
+    __tablename__ = 'candidate_state'
+    name: Mapped[str] = mapped_column(String(16), primary_key=True)
+    empty_revision: Mapped[int] = mapped_column(default=0)
 
 
 class Document(Record, Base):

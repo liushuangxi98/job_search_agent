@@ -69,29 +69,11 @@ class ProfileData(Payload):
 
 
 class ProfileUpdate(Payload):
-    """画像保存请求；修订号用于拒绝旧表单覆盖，confirmed 表示用户是否确认画像。"""
-    # 保存前读取到的共用修订号；必填非负整数；示例：3。版本冲突由服务检查，不由本模型检查。
-    revision: int = Field(title='画像修订号', ge=0, description='当前已保存画像的修订号，用于检测并发修改。')
-    # 是否确认画像；必填布尔值，无默认值；示例：true（JSON），确认非空条件见下方校验器。
-    confirmed: bool = Field(title='确认状态', description='是否确认这份画像；确认前必须补齐核心资料。')
-    # 要保存的完整画像内容；必填 ProfileData；示例：{"summary": "四年 Python 开发经验"}。
-    data: ProfileData = Field(title='画像内容', description='本次保存的完整画像，包含个人经历和求职条件。')
-
-    # 字段完成解析后再校验字段之间的业务关系，FastAPI 会把校验失败转换为 422。
-    @model_validator(mode='after')
-    def nonempty_confirmation(self):
-        """拒绝确认没有简介、经历和技能的画像；通过时返回当前对象，否则抛 ValueError。"""
-        if self.confirmed and not (self.data.summary or self.data.experience or self.data.skills):
-            raise ValueError('请至少填写简介、经历或技能后再确认画像')
-        return self
-
-
-class CandidateUpdate(Payload):
-    """一并确认画像和求职条件，避免两次保存导致部分成功或修订冲突。"""
+    """一并保存画像和求职条件，避免两次保存导致部分成功或修订冲突。"""
     # revision：读取个人资料时的修订号；必填非负整数，例：3；服务会拒绝旧版本。
     revision: int = Field(title='画像修订号', ge=0, description='当前已保存画像的修订号，用于检测并发修改。')
 
-    # profile：完整画像；必填，正式确认要求全部个人核心字段有效。
+    # profile：完整画像；必填，保存时要求全部个人核心字段有效。
     profile: ProfileData = Field(title='完整画像', description='需要一次确认保存的完整个人画像及求职条件。')
 
 

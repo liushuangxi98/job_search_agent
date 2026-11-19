@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
-from ..services.candidate_service import CandidateService
+from ..services.profile_service import ProfileService
 from ..services.document_service import DocumentService
 from ..services.job_service import JobService
 from ..services.memory_service import MemoryService
@@ -15,9 +15,9 @@ from ..services.system_service import SystemService
 # create_app 将服务存入 app.state；FastAPI 传入的 Request 指向当前请求所属应用。
 # 同一应用的请求复用这些服务，数据库会话则由业务服务按操作创建，不在请求间共享。
 # 普通 def 路由和依赖由 FastAPI 在线程池中调用，服务内部的普通调用不会自动切换线程。
-def get_candidate_service(request: Request) -> CandidateService:
+def get_profile_service(request: Request) -> ProfileService:
     """返回应用共享的画像与条件服务。"""
-    return request.app.state.candidate_service
+    return request.app.state.profile_service
 
 
 def get_document_service(request: Request) -> DocumentService:
@@ -52,7 +52,7 @@ def get_system_service(request: Request) -> SystemService:
 
 # Annotated 同时声明服务类型和获取方式；Depends 让 FastAPI 先调用对应函数，再注入其返回值。
 # 路由中的 service 由此取得，无须客户端传入；测试可用原函数作为键替换依赖。
-CandidateServiceDep = Annotated[CandidateService, Depends(get_candidate_service)]
+ProfileServiceDep = Annotated[ProfileService, Depends(get_profile_service)]
 DocumentServiceDep = Annotated[DocumentService, Depends(get_document_service)]
 JobServiceDep = Annotated[JobService, Depends(get_job_service)]
 MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]

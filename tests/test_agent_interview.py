@@ -113,7 +113,7 @@ def session(tmp_path, monkeypatch):
     monkeypatch.setattr(interview, 'build_chat', lambda: model)
 
     repo = Mock()
-    repo.candidate.return_value = dict(confirmed=True, revision=1, data=complete_profile())
+    repo.profile.return_value = dict(revision=1, data=complete_profile())
     repo.job.return_value = dict(id='job', data=complete_job())
     repo.latest_evaluation.return_value = {'key_requirement': '并发控制待核实'}
     repo.save_report.return_value = {'id': 'report'}

@@ -9,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.app import create_app
 from backend.api.exception_handlers import register_exception_handlers
 from backend.exceptions import AppError
-from workbench_fixtures import candidate_payload, complete_job
+from workbench_fixtures import profile_payload, complete_job
 
 
 @pytest.mark.parametrize(('error', 'status'), [
@@ -35,9 +35,9 @@ def test_api_errors_print_full_traceback(error, status, capsys):
 
 
 def ready_profile(client):
-    current = client.get('/api/candidate')
+    current = client.get('/api/profile')
     assert current.status_code == 200, current.text
-    saved = client.put('/api/candidate', json=candidate_payload(current.json()['revision']))
+    saved = client.put('/api/profile', json=profile_payload(current.json()['revision']))
     assert saved.status_code == 200, saved.text
     return saved.json()
 
@@ -100,6 +100,7 @@ def test_delete_one_evaluation_keeps_job_and_other_reports(client):
 
 
 def test_confirmation_applies_once_and_locks_other_runs(client):
+    ready_profile(client)
     before = client.get('/api/profile').json()
     run = start(client, 'chat', text='演示补充信息', demo_scenario='needs_input')
     assert run['status'] == 'needs_input'
@@ -109,13 +110,14 @@ def test_confirmation_applies_once_and_locks_other_runs(client):
     assert accepted.status_code == 202
     assert wait_run(client, run['id'])['status'] == 'completed'
     saved = client.get('/api/profile').json()
-    assert saved['data']['city'] == '杭州'
+    assert saved['profile']['city'] == '杭州'
     assert saved['revision'] == before['revision'] + 1
     assert client.post(f"/api/runs/{run['id']}/input", json=body).status_code == 409
     assert client.get('/api/profile').json() == saved
 
 
 def test_reject_and_revision_conflict_do_not_overwrite_preferences(client):
+    ready_profile(client)
     before = client.get('/api/profile').json()
     run = start(client, 'chat', text='演示', demo_scenario='needs_input')
     body = {'input_id': run['pending_input']['id'], 'decision': 'reject'}
@@ -123,10 +125,10 @@ def test_reject_and_revision_conflict_do_not_overwrite_preferences(client):
     wait_run(client, run['id'])
     assert client.get('/api/profile').json() == before
     run = start(client, 'chat', text='演示', demo_scenario='needs_input')
-    client.put('/api/profile', json={'revision': before['revision'], 'confirmed': False, 'data': {'city': '深圳'}})
+    client.put('/api/profile', json={'revision': before['revision'], 'profile': {**before['profile'], 'city': '深圳'}})
     body = {'input_id': run['pending_input']['id'], 'decision': 'confirm'}
     assert client.post(f"/api/runs/{run['id']}/input", json=body).status_code == 409
-    assert client.get('/api/profile').json()['data']['city'] == '深圳'
+    assert client.get('/api/profile').json()['profile']['city'] == '深圳'
 
 
 def test_demo_failure_and_partial_states_are_visible(client):

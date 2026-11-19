@@ -165,12 +165,10 @@ class RunService:
                 if not isinstance(value, str) or not value.strip() or len(value) > 50000:
                     raise AppError(422, 'JD_TEXT', '招聘原文须为不超过 50000 字的非空文本')
         snapshot = {
-            'profile': self.repository.candidate(),
+            'profile': self.repository.profile(),
             'jobs': [],
         }
         if body.action in {'evaluate', 'interview'}:
-            if not snapshot['profile']['confirmed']:
-                raise AppError(409, 'PROFILE_UNCONFIRMED', '请先确认简历画像')
             missing = check_dict_missing(snapshot['profile']['data'], ProfileData)
             if missing:
                 raise AppError(409, 'CANDIDATE_INCOMPLETE', '请先完善个人资料：' + '、'.join(item['label'] for item in missing))
@@ -239,11 +237,11 @@ class RunService:
             raise AppError(422, 'INVALID_PROPOSAL', '修改提案为空或格式错误')
         revision = proposal.get('revision')
         if target == 'profile':
-            current = self.repository.candidate()
+            current = self.repository.profile()
             if set(changes) - (set(ProfileData.model_fields) - {'evidence'}):
                 raise AppError(422, 'INVALID_PROPOSAL', '提案包含不可修改字段')
             data = ProfileData.model_validate({**current['data'], **changes}).model_dump()
-            return self.repository.update_candidate(data, revision)
+            return self.repository.update_profile(data, revision)
         if target == 'job':
             key = proposal.get('target_id')
             current = self.repository.job(key)

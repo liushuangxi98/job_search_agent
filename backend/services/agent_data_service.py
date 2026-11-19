@@ -2,7 +2,7 @@
 
 这里是应用接入适配器，不是 Agent 实现，也不直接访问数据库。
 """
-from .candidate_service import CandidateService
+from .profile_service import ProfileService
 from .document_service import DocumentService
 from .job_service import JobService
 from .memory_service import MemoryService
@@ -11,22 +11,27 @@ from .report_service import ReportService
 
 class AgentDataService:
     """保持 services.repository 的调用约定；校验、事务和异常仍由对应业务服务负责。"""
-    def __init__(self, candidates: CandidateService, documents: DocumentService,
+    def __init__(self, profiles: ProfileService, documents: DocumentService,
                  jobs: JobService, memories: MemoryService, reports: ReportService):
         """复用已装配的业务服务，不创建数据库 Session 或执行资料读写。"""
-        self.candidates = candidates
+        self.profiles = profiles
         self.document_service = documents
         self.job_service = jobs
         self.record_services = {'memories': memories}
         self.report_service = reports
 
-    def candidate(self):
-        """读取包含求职条件的完整画像，返回含修订号的资料字典；缺失时抛 AppError。"""
-        return self.candidates.get()
+    @staticmethod
+    def _profile_snapshot(record):
+        # 已保存报告和 Agent 使用 data 字段，页面接口使用 profile 字段。
+        return {'id': record['id'], 'revision': record['revision'], 'data': record['profile']}
 
-    def update_candidate(self, data, revision, confirmed=None):
-        """返回含新修订号的画像或条件字典；revision 是读取时的值，confirmed=None 保留状态。"""
-        return self.candidates.update(data, revision, confirmed)
+    def profile(self):
+        """返回含 ID 和修订号的画像快照；尚未保存时 ID 为空。"""
+        return self._profile_snapshot(self.profiles.get())
+
+    def update_profile(self, data, revision):
+        """返回含新修订号的画像或条件字典；revision 是读取时的值。"""
+        return self._profile_snapshot(self.profiles.save(data, revision))
 
     def job(self, key):
         """按岗位 ID 返回岗位及来源字典；缺失时抛 AppError。"""

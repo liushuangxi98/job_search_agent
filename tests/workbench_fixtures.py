@@ -25,7 +25,7 @@ def complete_job(**changes):
     }
 
 
-def candidate_payload(revision, *, profile=None):
+def profile_payload(revision, *, profile=None):
     return {
         'revision': revision,
         'profile': complete_profile() if profile is None else profile,

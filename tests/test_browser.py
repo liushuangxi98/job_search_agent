@@ -18,7 +18,7 @@ import uvicorn
 from backend.app import create_app
 from backend.contracts import AgentResponse
 from backend.demo import JOBS, PROFILE, handle as demo_handle
-from backend.repositories.candidate_repository import CandidateRepository
+from backend.repositories.profile_repository import ProfileRepository
 from backend.repositories.job_repository import JobRepository
 from backend.schemas import ProfileData
 
@@ -105,8 +105,8 @@ def browser_env(settings):
 
     app = create_app(settings, handler=handler)
     repo = app.state.agent_data_service
-    candidate = app.state.candidate_service
-    candidate.confirm(deepcopy(PROFILE), 0)
+    candidate = app.state.profile_service
+    candidate.save(deepcopy(PROFILE), 0)
 
     class SaveGate(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
@@ -139,7 +139,7 @@ def browser_env(settings):
             page.set_default_timeout(5000)
             page.on('pageerror', lambda error: errors.append(str(error)))
             yield {'page': page, 'url': f'http://127.0.0.1:{port}', 'repo': repo,
-                   'candidate': candidate, 'app': app, 'gate': gate, 'calls': calls,
+                   'profile': candidate, 'app': app, 'gate': gate, 'calls': calls,
                    'contexts': contexts, 'requests': requests,
                    'second_image': second_image, 'image_responses': image_responses, 'errors': errors}
             browser.close()
@@ -268,9 +268,9 @@ def test_chat_preserves_unsaved_profile_form_and_session(browser_env):
     assert page.evaluate('({local: localStorage.length, session: sessionStorage.length})') == {'local': 0, 'session': 0}
 
 
-def test_profile_fields_survive_confirmation_refresh_and_draft_adoption(browser_env, monkeypatch):
+def test_profile_fields_survive_save_refresh_and_draft_adoption(browser_env, monkeypatch):
     env, page = browser_env, browser_env['page']
-    original = env['candidate'].get_all()
+    original = env['profile'].get()
     draft_evidence = [{'text': '参与自动化项目', 'document_id': 'resume_dom', 'locator': '第 2 页',
                        'metadata': {'pages': [2, 3]}}]
     monkeypatch.setitem(PROFILE, 'evidence', draft_evidence)
@@ -292,9 +292,9 @@ def test_profile_fields_survive_confirmation_refresh_and_draft_adoption(browser_
     major.fill('软件工程')
     summary.fill('负责测试平台研发')
     mode.select_option(label='驾车')
-    save = form.get_by_role('button', name='保存并确认画像与条件')
+    save = form.get_by_role('button', name='保存画像与条件')
     save.click()
-    expect(page.locator('#toast')).to_contain_text('一起确认保存')
+    expect(page.locator('#toast')).to_contain_text('一起保存')
     page.reload()
     expect(major).to_have_value('软件工程')
     expect(summary).to_have_value('负责测试平台研发')
@@ -314,34 +314,34 @@ def test_profile_fields_survive_confirmation_refresh_and_draft_adoption(browser_
     expect(summary).to_have_value(PROFILE['summary'])
     expect(mode).to_have_value('公共交通')
     expect(form).to_contain_text('参与自动化项目 resume_dom · 第 2 页')
-    assert env['candidate'].get_all()['revision'] == original['revision'] + 1
+    assert env['profile'].get()['revision'] == original['revision'] + 1
     summary.fill('核对后补充的简介')
-    with page.expect_request(lambda req: req.method == 'PUT' and req.url.endswith('/api/candidate')) as saved:
+    with page.expect_request(lambda req: req.method == 'PUT' and req.url.endswith('/api/profile')) as saved:
         save.click()
     expected = {**PROFILE, 'summary': '核对后补充的简介'}
     assert saved.value.post_data_json['profile'] == expected
-    expect(page.locator('#toast')).to_contain_text('一起确认保存')
+    expect(page.locator('#toast')).to_contain_text('一起保存')
     page.reload()
     expect(summary).to_have_value(expected['summary'])
     expect(form).to_contain_text('参与自动化项目 resume_dom · 第 2 页')
     page.get_by_text('原始提取依据', exact=True).click()
     assert json.loads(page.locator('details[open] pre').inner_text()) == draft_evidence
-    assert env['candidate'].get_all()['profile'] == expected
+    assert env['profile'].get()['profile'] == expected
 
 
 def test_candidate_zero_years_is_saved_atomically(browser_env):
     env, page = browser_env, browser_env['page']
     visit(env, 'resume')
-    before = env['candidate'].get_all()['revision']
+    before = env['profile'].get()['revision']
     page.locator('[name=experience_years]').fill('0')
     page.locator('[name=city]').fill('上海')
-    page.get_by_role('button', name='保存并确认画像与条件').click()
-    expect(page.locator('#toast')).to_contain_text('一起确认保存')
-    saved = env['candidate'].get_all()
+    page.get_by_role('button', name='保存画像与条件').click()
+    expect(page.locator('#toast')).to_contain_text('一起保存')
+    saved = env['profile'].get()
     assert saved['revision'] == before + 1
     assert saved['profile']['experience_years'] == 0
     assert saved['profile']['city'] == '上海'
-    assert [x for x in env['requests'] if x[0] == 'PUT'] == [('PUT', '/api/candidate')]
+    assert [x for x in env['requests'] if x[0] == 'PUT'] == [('PUT', '/api/profile')]
 
 
 @pytest.mark.parametrize('field_name', ['name', 'education', 'major', 'summary', 'commute_mode', 'experience_years', 'skills', 'experience',
@@ -354,25 +354,25 @@ def test_candidate_required_fields_block_before_request(browser_env, field_name)
         control.select_option('')
     else:
         control.fill('')
-    page.get_by_role('button', name='保存并确认画像与条件').click()
-    expect(page.locator('#candidate-errors')).to_be_visible()
+    page.get_by_role('button', name='保存画像与条件').click()
+    expect(page.locator('#profile-errors')).to_be_visible()
     assert not any(method == 'PUT' for method, _ in env['requests'])
 
 
 @pytest.mark.parametrize('field_name, missing_value, label', [
     ('summary', '', '个人简介'), ('commute_mode', None, '出行偏好'),
 ])
-def test_missing_profile_field_blocks_jobs_until_confirmed(browser_env, field_name, missing_value, label):
+def test_missing_profile_field_blocks_jobs_until_saved(browser_env, field_name, missing_value, label):
     env, page = browser_env, browser_env['page']
     a, _ = seed_jobs(env)
-    # 模拟旧库中仍标记为已确认、但按当前必填规则存在缺项的画像。
-    with env['candidate'].session_factory.begin() as session:
-        repository = CandidateRepository(session)
+    # 模拟旧库中按当前必填规则存在缺项的画像。
+    with env['profile'].session_factory.begin() as session:
+        repository = ProfileRepository(session)
         candidate = repository.get()
-        assert candidate.confirmed
+        assert candidate.id is not None
         repository.update(candidate, {**candidate.profile, field_name: missing_value})
-    current = env['candidate'].get_all()
-    assert not current['confirmed']
+    current = env['profile'].get()
+    assert current['missing']
     assert current['missing'] == [{'field': f'profile.{field_name}', 'label': label}]
 
     visit(env)
@@ -383,17 +383,17 @@ def test_missing_profile_field_blocks_jobs_until_confirmed(browser_env, field_na
     page.get_by_role('link', name='前往简历画像 →').click()
     control = page.locator(f'#profile-form [name={field_name}]')
     expect(control).to_have_value('')
-    page.get_by_role('button', name='保存并确认画像与条件').click()
-    expect(page.locator('#candidate-errors')).to_contain_text(label)
+    page.get_by_role('button', name='保存画像与条件').click()
+    expect(page.locator('#profile-errors')).to_contain_text(label)
     assert not any(method == 'PUT' for method, _ in env['requests'])
 
     if field_name == 'commute_mode':
         control.select_option('公共交通')
     else:
         control.fill(PROFILE[field_name])
-    page.get_by_role('button', name='保存并确认画像与条件').click()
-    expect(page.locator('#toast')).to_contain_text('一起确认保存')
-    assert env['candidate'].get_all()['confirmed']
+    page.get_by_role('button', name='保存画像与条件').click()
+    expect(page.locator('#toast')).to_contain_text('一起保存')
+    assert not env['profile'].get()['missing']
     page.locator('nav [data-page=jobs]').click()
     for action in ('评估', '模拟面试'):
         button = row(page, a).get_by_role('button', name=action, exact=True)
@@ -958,8 +958,8 @@ def test_old_report_link_shows_missing_job_and_saved_report(browser_env):
 def test_candidate_gate_and_failed_extraction_are_explicit(browser_env):
     env, page = browser_env, browser_env['page']
     a, _ = seed_jobs(env)
-    current = env['candidate'].get_all()
-    env['repo'].update_candidate(current['profile'], current['revision'], False)
+    current = env['profile'].get()
+    env['profile'].delete(current['revision'])
     visit(env)
     expect(row(page, a).get_by_role('button', name='评估', exact=True)).to_be_disabled()
     expect(row(page, a).get_by_role('button', name='模拟面试', exact=True)).to_be_disabled()
@@ -1011,12 +1011,12 @@ def test_profile_partial_draft_requires_manual_completion(browser_env):
     expect(page.locator('#editor')).to_contain_text('固定模拟数据')
     page.get_by_role('button', name='填入画像表单').click()
     expect(page.locator('#profile-form [name=projects]')).to_have_value('')
-    page.get_by_role('button', name='保存并确认画像与条件').click()
-    expect(page.locator('#candidate-errors')).to_contain_text('项目经历')
+    page.get_by_role('button', name='保存画像与条件').click()
+    expect(page.locator('#profile-errors')).to_contain_text('项目经历')
     assert not any(method == 'PUT' for method, _ in env['requests'])
     page.locator('#profile-form [name=projects]').fill('人工补充项目经历')
-    page.get_by_role('button', name='保存并确认画像与条件').click()
-    expect(page.locator('#toast')).to_contain_text('一起确认保存')
+    page.get_by_role('button', name='保存画像与条件').click()
+    expect(page.locator('#toast')).to_contain_text('一起保存')
 
 
 def test_chat_proposal_does_not_overwrite_dirty_form_or_revision(browser_env):
@@ -1032,10 +1032,10 @@ def test_chat_proposal_does_not_overwrite_dirty_form_or_revision(browser_env):
     expect(page.locator('#chat-drawer .pending')).to_have_count(0)
     page.locator('[data-action=close-chat]').click()
     expect(page.locator('#profile-form [name=projects]')).to_have_value('应保留的未保存项目')
-    page.get_by_role('button', name='保存并确认画像与条件').click()
+    page.get_by_role('button', name='保存画像与条件').click()
     expect(page.locator('#toast')).to_contain_text('已更新')
     expect(page.locator('#profile-form [name=projects]')).to_have_value('应保留的未保存项目')
-    assert env['candidate'].get_all()['profile']['projects'] == PROFILE['projects']
+    assert env['profile'].get()['profile']['projects'] == PROFILE['projects']
 
 
 def test_undisclosed_job_is_actionable_and_aliases_stay_in_workbench(browser_env):
